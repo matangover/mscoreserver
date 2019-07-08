@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -17,32 +16,53 @@
 #include "element.h"
 #include "pitchvalue.h"
 
-class QPainter;
+namespace Ms {
 
 //---------------------------------------------------------
 //   @@ TremoloBar
+//
+//   @P userMag    qreal
+//   @P lineWidth  qreal
+//   @P play       bool         play tremolo bar
 //---------------------------------------------------------
 
-class TremoloBar : public Element {
-      Q_OBJECT
+class TremoloBar final : public Element {
+      Spatium _lw;
+      qreal _userMag     { 1.0   };       // allowed 0.1 - 10.0
+      bool  _play        { true  };
 
       QList<PitchValue> _points;
-      qreal _lw;
-      QPointF notePos;
-      qreal noteWidth;
+
+      QPolygonF polygon;                  // computed by layout
 
    public:
       TremoloBar(Score* s);
-      virtual TremoloBar* clone() const { return new TremoloBar(*this); }
-      virtual ElementType type() const { return TREMOLOBAR; }
-      virtual void layout();
-      virtual void draw(QPainter*) const;
-      virtual void write(Xml&) const;
-      virtual void read(XmlReader& e);
+      virtual TremoloBar* clone() const override  { return new TremoloBar(*this); }
+      virtual ElementType type() const override   { return ElementType::TREMOLOBAR; }
+      virtual void layout() override;
+      virtual void draw(QPainter*) const override;
+      virtual void write(XmlWriter&) const override;
+      virtual void read(XmlReader& e) override;
+
       QList<PitchValue>& points()                { return _points; }
       const QList<PitchValue>& points() const    { return _points; }
       void setPoints(const QList<PitchValue>& p) { _points = p;    }
+
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid) const override;
+
+      qreal userMag() const               { return _userMag;   }
+      void setUserMag(qreal m)            { _userMag = m;      }
+
+      void setLineWidth(Spatium v)        { _lw = v;        }
+      Spatium lineWidth() const           { return _lw;     }
+
+      bool play() const                   { return _play;    }
+      void setPlay(bool val)              { _play = val;     }
       };
 
+
+}     // namespace Ms
 #endif
 

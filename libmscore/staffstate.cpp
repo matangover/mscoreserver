@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -18,6 +17,9 @@
 #include "staff.h"
 #include "part.h"
 #include "mscore.h"
+#include "xml.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   StaffState
@@ -26,19 +28,31 @@
 StaffState::StaffState(Score* score)
    : Element(score)
       {
-      _subtype = STAFF_STATE_INSTRUMENT;
+      _staffStateType = StaffStateType::INSTRUMENT;
+      _instrument = new Instrument;
+      }
+
+StaffState::StaffState(const StaffState& ss)
+   : Element(ss)
+      {
+      _instrument = new Instrument(*ss._instrument);
+      }
+
+StaffState::~StaffState()
+      {
+      delete _instrument;
       }
 
 //---------------------------------------------------------
 //   write
 //---------------------------------------------------------
 
-void StaffState::write(Xml& xml) const
+void StaffState::write(XmlWriter& xml) const
       {
-      xml.stag(name());
-      xml.tag("subtype", _subtype);
-      if (subtype() == STAFF_STATE_INSTRUMENT)
-            _instrument.write(xml);
+      xml.stag(this);
+      xml.tag("subtype", int(_staffStateType));
+      if (staffStateType() == StaffStateType::INSTRUMENT)
+            _instrument->write(xml, nullptr);
       Element::writeProperties(xml);
       xml.etag();
       }
@@ -52,9 +66,9 @@ void StaffState::read(XmlReader& e)
       while (e.readNextStartElement()) {
             const QStringRef& tag(e.name());
             if (tag == "subtype")
-                  _subtype = StaffStateType(e.readInt());
+                  _staffStateType = StaffStateType(e.readInt());
             else if (tag == "Instrument")
-                  _instrument.read(e);
+                  _instrument->read(e, nullptr);
             else if (!Element::readProperties(e))
                   e.unknown();
             }
@@ -66,7 +80,7 @@ void StaffState::read(XmlReader& e)
 
 void StaffState::draw(QPainter* painter) const
       {
-      if (score()->printing())
+      if (score()->printing() || !score()->showUnprintable())
             return;
       QPen pen(selected() ? MScore::selectColor[0] : MScore::layoutBreakColor,
          lw, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
@@ -88,8 +102,8 @@ void StaffState::layout()
       qreal w  = _spatium * 2.5;
 //      qreal w1 = w * .6;
 
-      switch(subtype()) {
-            case STAFF_STATE_INSTRUMENT:
+      switch(staffStateType()) {
+            case StaffStateType::INSTRUMENT:
                   path.lineTo(w, 0.0);
                   path.lineTo(w, h);
                   path.lineTo(0.0, h);
@@ -100,21 +114,21 @@ void StaffState::layout()
                   path.lineTo(w * .5, _spatium * 1.0);
                   break;
 
-            case STAFF_STATE_TYPE:
+            case StaffStateType::TYPE:
                   path.lineTo(w, 0.0);
                   path.lineTo(w, h);
                   path.lineTo(0.0, h);
                   path.lineTo(0.0, 0.0);
                   break;
 
-            case STAFF_STATE_VISIBLE:
+            case StaffStateType::VISIBLE:
                   path.lineTo(w, 0.0);
                   path.lineTo(w, h);
                   path.lineTo(0.0, h);
                   path.lineTo(0.0, 0.0);
                   break;
 
-            case STAFF_STATE_INVISIBLE:
+            case StaffStateType::INVISIBLE:
                   path.lineTo(w, 0.0);
                   path.lineTo(w, h);
                   path.lineTo(0.0, h);
@@ -122,7 +136,7 @@ void StaffState::layout()
                   break;
 
             default:
-                  qDebug("unknown layout break symbol\n");
+                  qDebug("unknown layout break symbol");
                   break;
             }
       QRectF bb(0, 0, w, h);
@@ -132,35 +146,35 @@ void StaffState::layout()
       }
 
 //---------------------------------------------------------
-//   setSubtype
+//   setStaffStateType
 //---------------------------------------------------------
 
-void StaffState::setSubtype(const QString& s)
+void StaffState::setStaffStateType(const QString& s)
       {
       if (s == "instrument")
-            setSubtype(STAFF_STATE_INSTRUMENT);
+            setStaffStateType(StaffStateType::INSTRUMENT);
       else if (s == "type")
-            setSubtype(STAFF_STATE_TYPE);
+            setStaffStateType(StaffStateType::TYPE);
       else if (s == "visible")
-            setSubtype(STAFF_STATE_VISIBLE);
+            setStaffStateType(StaffStateType::VISIBLE);
       else if (s == "invisible")
-            setSubtype(STAFF_STATE_INVISIBLE);
+            setStaffStateType(StaffStateType::INVISIBLE);
       }
 
 //---------------------------------------------------------
-//   subtypeName
+//   staffStateTypeName
 //---------------------------------------------------------
 
-QString StaffState::subtypeName() const
+QString StaffState::staffStateTypeName() const
       {
-      switch(subtype()) {
-            case STAFF_STATE_INSTRUMENT:
+      switch(staffStateType()) {
+            case StaffStateType::INSTRUMENT:
                   return "instrument";
-            case STAFF_STATE_TYPE:
+            case StaffStateType::TYPE:
                   return "type";
-            case STAFF_STATE_VISIBLE:
+            case StaffStateType::VISIBLE:
                   return "visible";
-            case STAFF_STATE_INVISIBLE:
+            case StaffStateType::INVISIBLE:
                   return "invisible";
             default:
                   return "??";
@@ -171,7 +185,7 @@ QString StaffState::subtypeName() const
 //   acceptDrop
 //---------------------------------------------------------
 
-bool StaffState::acceptDrop(MuseScoreView*, const QPointF&, Element*) const
+bool StaffState::acceptDrop(EditData&) const
       {
       return false;
       }
@@ -180,10 +194,12 @@ bool StaffState::acceptDrop(MuseScoreView*, const QPointF&, Element*) const
 //   drop
 //---------------------------------------------------------
 
-Element* StaffState::drop(const DropData& data)
+Element* StaffState::drop(EditData& data)
       {
-      Element* e = data.element;
+      Element* e = data.dropElement;
       score()->undoChangeElement(this, e);
       return e;
       }
+
+}
 

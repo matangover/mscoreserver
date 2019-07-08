@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -15,8 +14,9 @@
 #define __SHADOWNOTE_H__
 
 #include "element.h"
+#include "durationtype.h"
 
-class QPainter;
+namespace Ms {
 
 //---------------------------------------------------------
 //   ShadowNote
@@ -27,22 +27,32 @@ class QPainter;
  which shows the note insert position in note entry mode.
 */
 
-class ShadowNote : public Element {
-      Q_OBJECT
-
+class ShadowNote final : public Element {
       int _line;
-      Sym* sym;
+      SymId _notehead;
+      TDuration _duration;
+      int _voice;
+      bool _rest;
 
    public:
       ShadowNote(Score*);
-      virtual ShadowNote* clone() const { return new ShadowNote(*this); }
-      virtual ElementType type() const  { return SHADOW_NOTE; }
+      virtual ShadowNote* clone() const  { return new ShadowNote(*this); }
+      virtual ElementType type() const   { return ElementType::SHADOW_NOTE; }
       virtual void layout();
-      int line() const                  { return _line;   }
-      void setLine(int n)               { _line = n;      }
+      int line() const                   { return _line;   }
+      void setLine(int n)                { _line = n;      }
       virtual void draw(QPainter*) const;
-      void setSym(Sym* s)               { sym = s;     }
+
+      void setState(SymId noteSymbol, int voice, TDuration duration, bool rest = false);
+
+      SymId getNoteFlag() const;
+      bool computeUp() const;
+
+      SymId notehead() const { return _notehead; }
+      bool isValid() const;
       };
 
+
+}     // namespace Ms
 #endif
 

@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -16,32 +15,29 @@
 
 #include "element.h"
 
-class QPainter;
+namespace Ms {
 
 //---------------------------------------------------------
 //   Lasso
 //---------------------------------------------------------
 
 class Lasso : public Element {
-      Q_OBJECT
-
-      QRectF _rect;
-      MuseScoreView* view;        // valid in edit mode
-
    public:
       Lasso(Score*);
-      virtual Lasso* clone() const       { return new Lasso(*this); }
-      virtual ElementType type() const   { return LASSO; }
-      virtual void draw(QPainter*) const;
-      virtual bool isEditable() const     { return true; }
-      virtual void editDrag(const EditData&);
-      virtual void updateGrips(int*, QRectF*) const;
-      QRectF rect() const                 { return _rect; }
-      void setRect(const QRectF& r)       { _rect = r;    }
-      virtual void layout();
-      virtual void startEdit(MuseScoreView*, const QPointF&);
-      virtual void endEdit();
+      virtual Lasso* clone() const override        { return new Lasso(*this); }
+      virtual ElementType type() const override    { return ElementType::LASSO; }
+      virtual void draw(QPainter*) const override;
+      virtual bool isEditable() const override     { return true; }
+      virtual void editDrag(EditData&) override;
+      virtual void updateGrips(EditData&) const override;
+      virtual void endDrag(EditData&)              {}
+
+      virtual void startEdit(EditData&) override;
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
       };
 
+
+}     // namespace Ms
 #endif
 

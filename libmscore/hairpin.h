@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: hairpin.h 5242 2012-01-23 17:25:56Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -12,89 +11,148 @@
 //=============================================================================
 
 #ifndef __HAIRPIN_H__
+#define __HAIRPIN_H__
 
 #include "element.h"
+#include "dynamic.h"
 #include "line.h"
+#include "textlinebase.h"
 #include "mscore.h"
+
+namespace Ms {
 
 class Score;
 class Hairpin;
-class QPainter;
+
+enum class HairpinType : signed char {
+      INVALID = -1,
+      CRESC_HAIRPIN,
+      DECRESC_HAIRPIN,
+      CRESC_LINE,
+      DECRESC_LINE
+      };
+
+enum class VeloChangeMethod : signed char {
+      NORMAL,
+      EXPONENTIAL,
+      EASE_IN,
+      EASE_OUT,
+      EASE_IN_OUT       // and shake it all about
+      };
 
 //---------------------------------------------------------
 //   @@ HairpinSegment
 //---------------------------------------------------------
 
-class HairpinSegment : public LineSegment {
-      Q_OBJECT
+class HairpinSegment final : public TextLineBaseSegment {
+      bool    drawCircledTip;
+      QPointF circledTip;
+      qreal   circledTipRadius;
 
-      QLineF l1, l2;
+      virtual void startEdit(EditData&) override;
+      virtual void startEditDrag(EditData&) override;
+      virtual void editDrag(EditData&) override;
+      virtual void updateGrips(EditData&) const override;
 
-   protected:
+      virtual void draw(QPainter*) const override;
+      virtual Sid getPropertyStyle(Pid) const override;
+
+      bool acceptDrop(EditData&) const override;
+      Element* drop(EditData&);
+
    public:
-      HairpinSegment(Score* s) : LineSegment(s) {}
-      Hairpin* hairpin() const              { return (Hairpin*)spanner(); }
-      virtual HairpinSegment* clone() const { return new HairpinSegment(*this); }
-      virtual ElementType type() const      { return HAIRPIN_SEGMENT; }
-      virtual void draw(QPainter*) const;
-      virtual void layout();
+      HairpinSegment(Spanner* sp, Score* s);
+      virtual HairpinSegment* clone() const override { return new HairpinSegment(*this);    }
+      virtual ElementType type() const override      { return ElementType::HAIRPIN_SEGMENT; }
+
+      Hairpin* hairpin() const                       { return (Hairpin*)spanner();          }
+
+      virtual Element* propertyDelegate(Pid) override;
+
+      virtual void layout() override;
+      virtual Shape shape() const override;
       };
 
 //---------------------------------------------------------
 //   @@ Hairpin
-//   @P subtype    enum HairpinType CRESCENDO, DECRESCENDO
-//   @P veloChange int
-//   @P dynRange   enum Element::DynamicRange
+//   @P dynRange     enum (Dynamic.STAFF, Dynamic.PART, Dynamic.SYSTEM)
+//   @P hairpinType  enum (Hairpin.CRESCENDO, Hairpin.DECRESCENDO)
+//   @P veloChange   int
 //---------------------------------------------------------
 
-class Hairpin : public SLine {
-      Q_OBJECT
-      Q_ENUMS(HairpinType)
-
-   public:
-      enum HairpinType { CRESCENDO, DECRESCENDO };
-
-   private:
-      Q_PROPERTY(HairpinType subtype     READ subtype     WRITE undoSetSubtype)
-      Q_PROPERTY(int         veloChange  READ veloChange  WRITE undoSetVeloChange)
-      Q_PROPERTY(Element::DynamicRange   dynRange READ dynRange WRITE undoSetDynRange)
-
-      HairpinType _subtype;
+class Hairpin final : public TextLineBase {
+      HairpinType _hairpinType { HairpinType::INVALID };
       int _veloChange;
-      DynamicRange _dynRange;
+      bool  _hairpinCircledTip;
+      Dynamic::Range _dynRange;
+      bool _singleNoteDynamics;
+      VeloChangeMethod _veloChangeMethod;
+
+      Spatium _hairpinHeight;
+      Spatium _hairpinContHeight;
+
+      virtual Sid getPropertyStyle(Pid) const override;
+
+      struct VeloMethodItem {
+            VeloChangeMethod method;
+            const char* name;
+            };
 
    public:
       Hairpin(Score* s);
-      virtual Hairpin* clone() const   { return new Hairpin(*this); }
-      virtual ElementType type() const { return HAIRPIN;  }
+      virtual Hairpin* clone() const override   { return new Hairpin(*this); }
+      virtual ElementType type() const override { return ElementType::HAIRPIN;  }
 
-      HairpinType subtype() const      { return _subtype; }
-      void setSubtype(HairpinType val) { _subtype = val;  }
-      void undoSetSubtype(HairpinType);
+      HairpinType hairpinType() const           { return _hairpinType; }
+      void setHairpinType(HairpinType val);
 
-      Segment* segment() const         { return (Segment*)parent(); }
-      virtual void layout();
-      virtual LineSegment* createLineSegment();
+      Segment* segment() const                  { return (Segment*)parent(); }
+      virtual void layout() override;
+      virtual LineSegment* createLineSegment() override;
 
-      int veloChange() const           { return _veloChange; }
-      void setVeloChange(int v)        { _veloChange = v;    }
-      void undoSetVeloChange(int v);
+      bool hairpinCircledTip() const            { return _hairpinCircledTip; }
+      void setHairpinCircledTip(bool val)       { _hairpinCircledTip = val; }
 
-      DynamicRange dynRange() const       { return _dynRange; }
-      void setDynRange(DynamicRange t)    { _dynRange = t;    }
-      void undoSetDynRange(DynamicRange t);
+      int veloChange() const                    { return _veloChange; }
+      void setVeloChange(int v)                 { _veloChange = v;    }
 
-      virtual void write(Xml&) const;
-      virtual void read(XmlReader&);
+      Dynamic::Range dynRange() const           { return _dynRange; }
+      void setDynRange(Dynamic::Range t)        { _dynRange = t;    }
 
-      virtual QVariant getProperty(P_ID id) const;
-      virtual bool setProperty(P_ID propertyId, const QVariant&);
-      QVariant propertyDefault(P_ID id) const;
+      Spatium hairpinHeight() const             { return _hairpinHeight; }
+      void setHairpinHeight(Spatium val)        { _hairpinHeight = val; }
 
-      virtual void setYoff(qreal);
+      Spatium hairpinContHeight() const         { return _hairpinContHeight; }
+      void setHairpinContHeight(Spatium val)    { _hairpinContHeight = val; }
+
+      bool singleNoteDynamics() const           { return _singleNoteDynamics; }
+      void setSingleNoteDynamics(bool val)      { _singleNoteDynamics = val; }
+
+      VeloChangeMethod veloChangeMethod() const { return _veloChangeMethod; }
+      void setVeloChangeMethod(VeloChangeMethod val)  { _veloChangeMethod = val; }
+      static QString veloChangeMethodToName(VeloChangeMethod method);
+      static VeloChangeMethod nameToVeloChangeMethod(QString name);
+
+      bool isCrescendo() const   { return _hairpinType == HairpinType::CRESC_HAIRPIN || _hairpinType == HairpinType::CRESC_LINE; }
+      bool isDecrescendo() const { return _hairpinType == HairpinType::DECRESC_HAIRPIN || _hairpinType == HairpinType::DECRESC_LINE; }
+
+      virtual void write(XmlWriter&) const override;
+      virtual void read(XmlReader&) override;
+
+      virtual QVariant getProperty(Pid id) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid id) const override;
+      virtual Pid propertyId(const QStringRef& xmlName) const override;
+
+      virtual QString accessibleInfo() const override;
+      bool isLineType() const  { return _hairpinType == HairpinType::CRESC_LINE || _hairpinType == HairpinType::DECRESC_LINE; }
+
+      static const std::vector<VeloMethodItem> veloChangeMethodTable;
       };
 
-#define __HAIRPIN_H__
+}     // namespace Ms
+
+Q_DECLARE_METATYPE(Ms::HairpinType);
 
 #endif
 

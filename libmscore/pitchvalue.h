@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -13,6 +12,8 @@
 
 #ifndef __PITCHVALUE_H__
 #define __PITCHVALUE_H__
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   PitchValue
@@ -29,7 +30,12 @@ struct PitchValue {
       bool vibrato;
       PitchValue() {}
       PitchValue(int a, int b, bool c = false) : time(a), pitch(b), vibrato(c) {}
+      inline bool operator==(const PitchValue& pv) const {
+            return (pv.time == time && pv.pitch == pitch && pv.vibrato == vibrato);
+            }
       };
 
+
+}     // namespace Ms
 #endif
 

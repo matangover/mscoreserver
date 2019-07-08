@@ -1,7 +1,5 @@
 //=============================================================================
-//  AL
 //  Audio Utility Library
-//  $Id:$
 //
 //  Copyright (C) 2002-2006 by Werner Schweer and others
 //
@@ -20,6 +18,8 @@
 
 #ifndef __DSP_H__
 #define __DSP_H__
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   f_max
@@ -64,8 +64,8 @@ class Dsp {
             }
       virtual void cpy(float* dst, float* src, unsigned n) {
 #if defined(ARCH_X86) || defined(ARCH_X86_64)
-            register unsinged long int dummy;
-            __asm__ __volatile__ "rep; movsl" :"=&D"(dst), "=&S"(src), "=&c"(dummy) :"0" (to), "1" (from),"2" (n) : "memory");
+            register unsigned long int dummy;
+            __asm__ __volatile__ ("rep; movsl" :"=&D"(dst), "=&S"(src), "=&c"(dummy) :"0" (to), "1" (from),"2" (n) : "memory");
 #else
             memcpy(dst, src, sizeof(float) * n);
 #endif
@@ -75,5 +75,7 @@ class Dsp {
 extern void initDsp();
 extern Dsp* dsp;
 
+
+}     // namespace Ms
 #endif
 

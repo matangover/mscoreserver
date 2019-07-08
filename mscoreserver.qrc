@@ -13,6 +13,9 @@
         <file>fonts/FreeSerifBold.ttf</file>
         <file>fonts/FreeSans.ttf</file>
         <file>fonts/mscore-BC.ttf</file>
+        <file>fonts/smufl/glyphnames.json</file>
+        <file>fonts/bravura/Bravura.otf</file>
+        <file>fonts/bravura/metadata.json</file>
         <file alias="styles/chords.xml">fonts/chords.xml</file>
         <file alias="styles/stdchords.xml">fonts/stdchords.xml</file>
         <file alias="styles/jazzchords.xml">fonts/jazzchords.xml</file>

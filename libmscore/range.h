@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2012 Werner Schweer
 //
@@ -16,6 +15,8 @@
 
 #include "fraction.h"
 
+namespace Ms {
+
 class Element;
 class Measure;
 class Tuplet;
@@ -23,6 +24,7 @@ class Segment;
 class Spanner;
 class ScoreRange;
 class ChordRest;
+class Score;
 
 //---------------------------------------------------------
 //   TrackList
@@ -32,23 +34,38 @@ class TrackList : public QList<Element*>
       {
       Fraction _duration;
       ScoreRange* _range;
+      int _track;
 
-      Tuplet* writeTuplet(Tuplet* tuplet, Measure* measure, int tick) const;
-      void append(Element*, QHash<Spanner*, Spanner*>*);
-      void readSpanner(int track, Spanner* spannerFor,
-         Spanner* spannerBack, ChordRest* dst, QHash<Spanner*,Spanner*>* map);
-      void writeSpanner(int track, ChordRest* src, ChordRest* dst,
-         Segment* segment, QHash<Spanner*, Spanner*>* map) const;
+      Tuplet* writeTuplet(Tuplet* parent, Tuplet* tuplet, Measure*& measure, Fraction& rest) const;
+      void append(Element*);
+      void appendTuplet(Tuplet* srcTuplet, Tuplet* dstTuplet);
+      void combineTuplet(Tuplet* dst, Tuplet* src);
 
    public:
       TrackList(ScoreRange* r) { _range = r; }
       ~TrackList();
-      void read(int track, const Segment* fs, const Segment* ls, QHash<Spanner*, Spanner*>*);
-      bool canWrite(const Fraction& f) const;
-      bool write(int track, Measure*, QHash<Spanner*, Spanner*>*) const;
-      Fraction duration() const  { return _duration; }
+
+      Fraction ticks() const  { return _duration; }
       ScoreRange* range() const { return _range; }
+
+      int track() const        { return _track; }
+      void setTrack(int val)   { _track = val; }
+
+      void read(const Segment* fs, const Segment* ls);
+      bool write(Score*, const Fraction&) const;
+
       void appendGap(const Fraction&);
+      bool truncate(const Fraction&);
+      void dump() const;
+      };
+
+//---------------------------------------------------------
+//   Annotation
+//---------------------------------------------------------
+
+struct Annotation {
+      Fraction tick;
+      Element* e;
       };
 
 //---------------------------------------------------------
@@ -56,23 +73,29 @@ class TrackList : public QList<Element*>
 //---------------------------------------------------------
 
 class ScoreRange {
-      mutable QHash<Spanner*, Spanner*> spannerMap;
       QList<TrackList*> tracks;
       Segment* _first;
       Segment* _last;
 
+   protected:
+      QList<Spanner*> spanner;
+      QList<Annotation> annotations;
+
    public:
       ScoreRange() {}
       ~ScoreRange();
-      void read(Segment* first, Segment* last, int startTrack, int endTrack);
-      bool canWrite(const Fraction&) const;
-      bool write(int track, Measure*) const;
-      Fraction duration() const;
+      void read(Segment* first, Segment* last, bool readSpanner = true);
+      bool write(Score*, const Fraction&) const;
+      Fraction ticks() const;
       Segment* first() const { return _first; }
       Segment* last() const  { return _last;  }
       void fill(const Fraction&);
-//      void check() const;
+      bool truncate(const Fraction&);
+
+      friend class TrackList;
       };
 
+
+}     // namespace Ms
 #endif
 

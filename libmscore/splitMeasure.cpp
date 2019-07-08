@@ -15,6 +15,11 @@
 #include "segment.h"
 #include "chordrest.h"
 #include "range.h"
+#include "tuplet.h"
+#include "spanner.h"
+#include "undo.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   cmdSplitMeasure
@@ -22,30 +27,79 @@
 
 void Score::cmdSplitMeasure(ChordRest* cr)
       {
-      Segment* segment = cr->segment();
+      startCmd();
+      splitMeasure(cr->segment());
+      endCmd();
+      }
+
+//---------------------------------------------------------
+//   splitMeasure
+//    return true on success
+//---------------------------------------------------------
+
+void Score::splitMeasure(Segment* segment)
+      {
+      if (segment->rtick().isZero()) {
+            MScore::setError(CANNOT_SPLIT_MEASURE_FIRST_BEAT);
+            return;
+            }
+      if (segment->splitsTuplet()) {
+            MScore::setError(CANNOT_SPLIT_MEASURE_TUPLET);
+            return;
+            }
       Measure* measure = segment->measure();
 
       ScoreRange range;
-      range.read(measure->first(), measure->last(), 0, nstaves() * VOICES);
+      range.read(measure->first(), measure->last());
 
-      startCmd();
-      deleteItem(measure);
+      Fraction stick = measure->tick();
+      Fraction etick = measure->endTick();
+
+      std::list<std::tuple<Spanner*, Fraction, Fraction>> sl;
+      for (auto i : spanner()) {
+            Spanner* s = i.second;
+            Element* start = s->startElement();
+            Element* end = s->endElement();
+            if (s->tick() >= stick && s->tick() < etick)
+                  start = nullptr;
+            if (s->tick2() >= stick && s->tick2() < etick)
+                  end = nullptr;
+            if (start != s->startElement() || end != s->endElement())
+                  undo(new ChangeStartEndSpanner(s, start, end));
+            if (s->tick() < stick && s->tick2() > stick)
+                  sl.push_back(make_tuple(s, s->tick(), s->ticks()));
+            }
+
+      MeasureBase* nm = measure->next();
+      undoRemoveMeasures(measure, measure);
+      undoInsertTime(measure->tick(), -measure->ticks());
 
       // create empty measures:
-      Measure* m2 = static_cast<Measure*>(insertMeasure(Element::MEASURE, measure->next(), true));
-      Measure* m1 = static_cast<Measure*>(insertMeasure(Element::MEASURE, m2, true));
+      insertMeasure(ElementType::MEASURE, nm, true);
+      Measure* m2 = toMeasure(nm ? nm->prev() : lastMeasure());
+      insertMeasure(ElementType::MEASURE, m2, true);
+      Measure* m1 = toMeasure(m2->prev());
 
-      int tick = segment->tick();
+      Fraction tick = segment->tick();
       m1->setTick(measure->tick());
       m2->setTick(tick);
-      int ticks1 = segment->tick() - measure->tick();
-      int ticks2 = measure->ticks() - ticks1;
+      Fraction ticks1 = segment->tick() - measure->tick();
+      Fraction ticks2 = measure->ticks() - ticks1;
       m1->setTimesig(measure->timesig());
       m2->setTimesig(measure->timesig());
-      m1->setLen(Fraction::fromTicks(ticks1));
-      m2->setLen(Fraction::fromTicks(ticks2));
-      range.write(0, m1);
+      m1->adjustToLen(ticks1.reduced(), false);
+      m2->adjustToLen(ticks2.reduced(), false);
+      range.write(this, m1->tick());
 
-      endCmd();
+      for (auto i : sl) {
+            Spanner* s      = std::get<0>(i);
+            Fraction t      = std::get<1>(i);
+            Fraction ticks  = std::get<2>(i);
+            if (s->tick() != t)
+                  s->undoChangeProperty(Pid::SPANNER_TICK, t);
+            if (s->ticks() != ticks)
+                  s->undoChangeProperty(Pid::SPANNER_TICKS, ticks);
+            }
       }
+}
 

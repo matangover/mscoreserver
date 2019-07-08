@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: part.h 5335 2012-02-17 13:51:54Z lasconic $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -18,38 +17,52 @@
 #include "instrument.h"
 #include "text.h"
 
-class Xml;
+namespace Ms {
+
+class XmlWriter;
 class Staff;
 class Score;
 class InstrumentTemplate;
-class ClefList;
 
 //---------------------------------------------------------
 //   @@ Part
-//   @P partName  QString  name of the part, used in the mixer, read only
+//   @P endTrack        int         (read only)
+//   @P harmonyCount    int         (read only)
+//   @P hasDrumStaff    bool        (read only)
+//   @P hasPitchedStaff bool        (read only)
+//   @P hasTabStaff     bool        (read only)
+//   @P instrumentId    string      (read only)
+//   @P longName        string
+//   @P lyricCount      int         (read only)
+//   @P midiChannel     int         (read only)
+//   @P midiProgram     int         (read only)
+//   @P mute            bool
+//   @P partName        string      name of the part, used in the mixer
+//   @P shortName       string
+//   @P show            bool        check/set whether or not a part is shown
+//   @P startTrack      int         (read only)
+//   @P volume          int
 //---------------------------------------------------------
 
-class Part : public QObject {
-      Q_OBJECT
-
-      Q_PROPERTY(QString partName READ partName)
-
-      Score* _score;
-
-      QString _partName;           ///< used in tracklist (mixer)
-      InstrumentList _instrList;
-
+class Part final : public ScoreElement {
+      QString _partName;            ///< used in tracklist (mixer)
+      InstrumentList _instruments;
       QList<Staff*> _staves;
       QString _id;                  ///< used for MusicXml import
       bool _show;                   ///< show part in partitur if true
 
+      static const int DEFAULT_COLOR = 0x3399ff;
+      int _color;                   ///User specified color for helping to label parts
+
    public:
       Part(Score* = 0);
       void initFromInstrTemplate(const InstrumentTemplate*);
+      virtual ElementType type() const override { return ElementType::PART; }
 
       void read(XmlReader&);
-      void read114(XmlReader&);
-      void write(Xml& xml) const;
+      bool readProperties(XmlReader&);
+      void write(XmlWriter& xml) const;
+
       int nstaves() const                       { return _staves.size(); }
       QList<Staff*>* staves()                   { return &_staves; }
       const QList<Staff*>* staves() const       { return &_staves; }
@@ -57,52 +70,72 @@ class Part : public QObject {
       void setId(const QString& s)              { _id = s; }
       QString id() const                        { return _id; }
 
-      QTextDocumentFragment longName(int tick = 0) const;
-      QTextDocumentFragment shortName(int tick = 0) const;
-      QString instrumentName(int tick = 0) const;
+      int startTrack() const;
+      int endTrack() const;
 
-      const QList<StaffNameDoc>& longNames(int tick = 0) const  { return instr(tick)->longNames();  }
-      const QList<StaffNameDoc>& shortNames(int tick = 0) const { return instr(tick)->shortNames(); }
+      QString longName(const Fraction& tick = { -1, 1 } ) const;
+      QString shortName(const Fraction& tick = { -1, 1 } ) const;
+      QString instrumentName(const Fraction& tick = { -1, 1 } ) const;
+      QString instrumentId(const Fraction& tick = { -1, 1 } ) const;
 
-      void setLongNames(QList<StaffNameDoc>& s, int tick = 0);
-      void setShortNames(QList<StaffNameDoc>& s, int tick = 0);
+      const QList<StaffName>& longNames(const  Fraction& tick = { -1, 1 } ) const { return instrument(tick)->longNames();  }
+      const QList<StaffName>& shortNames(const Fraction& tick = { -1, 1 } ) const { return instrument(tick)->shortNames(); }
+
+      void setLongNames(QList<StaffName>& s,  const Fraction& tick = { -1, 1 } );
+      void setShortNames(QList<StaffName>& s, const Fraction& tick = { -1, 1 } );
 
       void setLongName(const QString& s);
       void setShortName(const QString& s);
 
+      void setPlainLongName(const QString& s);
+      void setPlainShortName(const QString& s);
+
       void setStaves(int);
 
-      Q_INVOKABLE int volume() const;
-      Q_INVOKABLE void setVolume(int volume);
-      int reverb() const;
-      int chorus() const;
-      int pan() const;
-      void setPan(int pan);
       int midiProgram() const;
       void setMidiProgram(int, int bank = 0);
 
       int midiChannel() const;
-      void setMidiChannel(int) const;
+      int midiPort() const;
+      void setMidiChannel(int ch, int port = -1, const Fraction& tick = {-1,1});  // tick != -1 for InstrumentChange
 
-      void insertStaff(Staff*);
+      void insertStaff(Staff*, int idx);
       void removeStaff(Staff*);
       bool show() const                        { return _show;  }
       void setShow(bool val)                   { _show = val;   }
-      Score* score() const                     { return _score; }
 
-      Instrument* instr(int tick = 0);
-      const Instrument* instr(int tick = 0) const;
-      void setInstrument(const Instrument&, int tick = 0);
-      void removeInstrument(int tick);
+      Instrument* instrument(Fraction = { -1, 1 } );
+      const Instrument* instrument(Fraction = { -1, 1 }) const;
+      void setInstrument(Instrument*, Fraction = { -1, 1} );       // transfer ownership
+      void setInstrument(const Instrument&&, Fraction = { -1, 1 });
+      void setInstrument(const Instrument&, Fraction = { -1, 1 });
+      void removeInstrument(const Fraction&);
+      const InstrumentList* instruments() const;
+
+      void insertTime(const Fraction& tick, const Fraction& len);
 
       QString partName() const                 { return _partName; }
       void setPartName(const QString& s)       { _partName = s; }
-      InstrumentList* instrList()              { return &_instrList;       }
+      int color() const { return _color; }
+      void setColor(int value) { _color = value; }
 
-      enum { SHOW };
-      QVariant getProperty(int id) const;
-      void setProperty(int id, const QVariant& property);
+      QVariant getProperty(Pid) const override;
+      bool setProperty(Pid, const QVariant&) override;
+
+      int lyricCount() const;
+      int harmonyCount() const;
+      bool hasPitchedStaff() const;
+      bool hasTabStaff() const;
+      bool hasDrumStaff() const;
+
+      const Part* masterPart() const;
+      Part* masterPart();
+
+      // Allows not reading the same instrument twice on importing 2.X scores.
+      // TODO: do we need instruments info in parts at all?
+      friend void readPart206(Part*, XmlReader&);
       };
 
+}     // namespace Ms
 #endif
 

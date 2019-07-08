@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2011 Werner Schweer
 //
@@ -14,6 +13,9 @@
 #include "cleflist.h"
 #include "clef.h"
 #include "score.h"
+#include "xml.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   ClefTypeList::operator==
@@ -40,39 +42,58 @@ bool ClefTypeList::operator!=(const ClefTypeList& t) const
 ClefTypeList ClefList::clef(int tick) const
       {
       if (empty())
-            return ClefTypeList(CLEF_G, CLEF_G);
-      ciClefEvent i = upperBound(tick);
+            return ClefTypeList(ClefType::INVALID, ClefType::INVALID);
+      auto i = upper_bound(tick);
       if (i == begin())
-            return ClefTypeList(CLEF_G, CLEF_G);
-      --i;
-      return i.value();
+            return ClefTypeList(ClefType::INVALID, ClefType::INVALID);
+      return (--i)->second;
       }
 
 //---------------------------------------------------------
 //   setClef
 //---------------------------------------------------------
 
-void ClefList::setClef(int tick, ClefTypeList idx)
+void ClefList::setClef(int tick, ClefTypeList ctl)
       {
-qDebug("setClef...\n");
-      replace(tick, idx);
+      auto i = find(tick);
+      if (i == end())
+            insert(std::pair<int, ClefTypeList>(tick, ctl));
+      else
+            i->second = ctl;
       }
 
 //---------------------------------------------------------
-//   ClefList::read
+//   nextClefTick
+//
+//    return the tick at which the clef after tick is located
+//    return -1, if no such clef
 //---------------------------------------------------------
 
-void ClefList::read(XmlReader& e, Score* cs)
+int ClefList::nextClefTick(int tick) const
       {
-      while (e.readNextStartElement()) {
-            if (e.name() == "clef") {
-                  int tick    = e.intAttribute("tick", 0);
-                  ClefType ct = Clef::clefType(e.attribute("idx", "0"));
-                  insert(cs->fileDivision(tick), ClefTypeList(ct, ct));
-                  e.readNext();
-                  }
-            else
-                  e.unknown();
-            }
+      if (empty())
+            return -1;
+      auto i = upper_bound(tick+1);
+      if (i == end())
+            return -1;
+      return i->first;
       }
 
+//---------------------------------------------------------
+//   currentClefTick
+//
+//    return the tick position of the clef currently
+//    in effect at tick
+//---------------------------------------------------------
+
+int ClefList::currentClefTick(int tick) const
+      {
+      if (empty())
+            return 0;
+      auto i = upper_bound(tick);
+      if (i == begin())
+            return 0;
+      --i;
+      return i->first;
+      }
+}

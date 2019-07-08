@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2011 Werner Schweer
 //
@@ -13,53 +12,126 @@
 
 #include "score.h"
 #include "iname.h"
+#include "staff.h"
+#include "part.h"
+#include "undo.h"
+
+namespace Ms {
+
+//---------------------------------------------------------
+//   longInstrumentStyle
+//---------------------------------------------------------
+
+static const ElementStyle longInstrumentStyle {
+      };
+
+//---------------------------------------------------------
+//   shortInstrumentStyle
+//---------------------------------------------------------
+
+static const ElementStyle shortInstrumentStyle {
+      };
 
 //---------------------------------------------------------
 //   InstrumentName
 //---------------------------------------------------------
 
 InstrumentName::InstrumentName(Score* s)
-   : Text(s)
+   : TextBase(s, Tid::INSTRUMENT_LONG, ElementFlag::NOTHING)
       {
-      setSubtype(INSTRUMENT_NAME_SHORT);
-      _layoutPos = 0;
+      setFlag(ElementFlag::MOVABLE, false);
+      setInstrumentNameType(InstrumentNameType::LONG);
       }
 
 //---------------------------------------------------------
-//   subtypeName
+//   instrumentNameTypeName
 //---------------------------------------------------------
 
-QString InstrumentName::subtypeName() const
+QString InstrumentName::instrumentNameTypeName() const
       {
-      if (subtype() == INSTRUMENT_NAME_SHORT)
-            return QString("short");
-      return QString("long");
+      return instrumentNameType() == InstrumentNameType::SHORT ? "short" : "long";
       }
 
 //---------------------------------------------------------
-//   setSubtype
+//   setInstrumentNameType
 //---------------------------------------------------------
 
-void InstrumentName::setSubtype(const QString& s)
+void InstrumentName::setInstrumentNameType(const QString& s)
       {
       if (s == "short")
-            setSubtype(INSTRUMENT_NAME_SHORT);
-      if (s == "long")
-            setSubtype(INSTRUMENT_NAME_LONG);
+            setInstrumentNameType(InstrumentNameType::SHORT);
+      else if (s == "long")
+            setInstrumentNameType(InstrumentNameType::LONG);
       else
             qDebug("InstrumentName::setSubtype: unknown <%s>", qPrintable(s));
       }
 
 //---------------------------------------------------------
-//   setSubtype
+//   setInstrumentNameType
 //---------------------------------------------------------
 
-void InstrumentName::setSubtype(InstrumentNameType st)
+void InstrumentName::setInstrumentNameType(InstrumentNameType st)
       {
-      _subtype = st;
-      if (st == INSTRUMENT_NAME_SHORT)
-            setTextStyleType(TEXT_STYLE_INSTRUMENT_SHORT);
-      else
-            setTextStyleType(TEXT_STYLE_INSTRUMENT_LONG);
+      _instrumentNameType = st;
+      if (st == InstrumentNameType::SHORT) {
+            setTid(Tid::INSTRUMENT_SHORT);
+            initElementStyle(&shortInstrumentStyle);
+            }
+      else {
+            setTid(Tid::INSTRUMENT_LONG);
+            initElementStyle(&longInstrumentStyle);
+            }
       }
+
+//---------------------------------------------------------
+//   getProperty
+//---------------------------------------------------------
+
+QVariant InstrumentName::getProperty(Pid id) const
+      {
+      switch (id) {
+            case Pid::INAME_LAYOUT_POSITION:
+                  return _layoutPos;
+            default:
+                  return TextBase::getProperty(id);
+            }
+      }
+
+//---------------------------------------------------------
+//   setProperty
+//---------------------------------------------------------
+
+bool InstrumentName::setProperty(Pid id, const QVariant& v)
+      {
+      bool rv = true;
+      switch (id) {
+            case Pid::INAME_LAYOUT_POSITION:
+                  _layoutPos = v.toInt();
+                  break;
+            case Pid::VISIBLE:
+            case Pid::COLOR:
+                  // not supported
+                  break;
+            default:
+                  rv = TextBase::setProperty(id, v);
+                  break;
+            }
+      return rv;
+      }
+
+//---------------------------------------------------------
+//   propertyDefault
+//---------------------------------------------------------
+
+QVariant InstrumentName::propertyDefault(Pid id) const
+      {
+      switch (id) {
+            case Pid::INAME_LAYOUT_POSITION:
+                  return 0;
+            default:
+                  return TextBase::propertyDefault(id);
+            }
+      }
+
+}
 

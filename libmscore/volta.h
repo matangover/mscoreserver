@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: volta.h 5500 2012-03-28 16:28:26Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -14,16 +13,14 @@
 #ifndef __VOLTA_H__
 #define __VOLTA_H__
 
-#include "textline.h"
+#include "textlinebase.h"
+
+namespace Ms {
 
 class Score;
-class Xml;
+class XmlWriter;
 class Volta;
 class Measure;
-
-enum VoltaType {
-      VOLTA_OPEN, VOLTA_CLOSED
-      };
 
 extern void vdebug(int n);
 extern LineSegment* voltaDebug;
@@ -32,44 +29,42 @@ extern LineSegment* voltaDebug;
 //   @@ VoltaSegment
 //---------------------------------------------------------
 
-class VoltaSegment : public TextLineSegment {
-      Q_OBJECT
-
+class VoltaSegment final : public TextLineBaseSegment {
    public:
-      VoltaSegment(Score* s) : TextLineSegment(s) {}
-      virtual ElementType type() const     { return VOLTA_SEGMENT; }
-      virtual VoltaSegment* clone() const  { return new VoltaSegment(*this); }
-      Volta* volta() const                 { return (Volta*)spanner(); }
-      virtual void layout();
+      VoltaSegment(Spanner*, Score*);
+      virtual ElementType type() const override     { return ElementType::VOLTA_SEGMENT; }
+      virtual VoltaSegment* clone() const override  { return new VoltaSegment(*this); }
+      Volta* volta() const                          { return (Volta*)spanner(); }
+      virtual void layout() override;
+
+      virtual Element* propertyDelegate(Pid) override;
       };
 
 //---------------------------------------------------------
 //   @@ Volta
-//   @P subtype   enum VoltaType VOLTA_OPEN, VOLTA_CLOSED
+//   @P voltaType  enum (Volta.CLOSE, Volta.OPEN)
 //---------------------------------------------------------
 
-class Volta : public TextLine {
-      Q_OBJECT
-      Q_ENUMS(VoltaType)
-
-   public:
-      enum VoltaType { VOLTA_OPEN, VOLTA_CLOSED };
-
-   private:
-      Q_PROPERTY(VoltaType subtype READ subtype WRITE undoSetSubtype)
-
-      VoltaType _subtype;
+class Volta final : public TextLineBase {
       QList<int> _endings;
 
    public:
-      Volta(Score* s);
-      virtual Volta* clone()     const { return new Volta(*this); }
-      virtual ElementType type() const { return VOLTA; }
-      virtual LineSegment* createLineSegment();
-      virtual void layout();
+      enum class Type : char {
+            OPEN, CLOSED
+            };
 
-      virtual void write(Xml&) const;
-      virtual void read(XmlReader& e);
+      Volta(Score* s);
+      virtual Volta* clone()       const override { return new Volta(*this); }
+      virtual ElementType type() const override   { return ElementType::VOLTA; }
+      virtual LineSegment* createLineSegment() override;
+
+      virtual void write(XmlWriter&) const override;
+      virtual void read(XmlReader& e) override;
+      virtual SpannerSegment* layoutSystem(System* system) override;
+
+      void setVelocity() const;
+      void setChannel() const;
+      void setTempo() const;
 
       QList<int> endings() const           { return _endings; }
       QList<int>& endings()                { return _endings; }
@@ -77,23 +72,21 @@ class Volta : public TextLine {
       void setText(const QString& s);
       QString text() const;
 
-      void setSubtype(VoltaType val);
-      void undoSetSubtype(VoltaType val);
-      VoltaType subtype() const            { return _subtype; }
-
       bool hasEnding(int repeat) const;
-      Measure* startMeasure() const    { return (Measure*)startElement(); }
-      Measure* endMeasure() const      { return (Measure*)endElement(); }
-      void setStartMeasure(Measure* m) { setStartElement((Element*)m); }
-      void setEndMeasure(Measure* m)   { setEndElement((Element*)m);   }
+      int lastEnding() const;
+      void setVoltaType(Volta::Type);     // deprecated
+      Type voltaType() const;             // deprecated
 
-      virtual QVariant getProperty(P_ID propertyId) const;
-      virtual bool setProperty(P_ID propertyId, const QVariant&);
-      virtual QVariant propertyDefault(P_ID) const;
-      virtual void setYoff(qreal);
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid) const override;
+
+      virtual QString accessibleInfo() const override;
       };
 
-Q_DECLARE_METATYPE(Volta::VoltaType)
+}     // namespace Ms
+
+Q_DECLARE_METATYPE(Ms::Volta::Type);
 
 #endif
 

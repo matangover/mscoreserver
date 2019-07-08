@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: spacer.cpp 5658 2012-05-21 18:40:58Z wschweer $
 //
 //  Copyright (C) 2011 Werner Schweer
 //
@@ -14,6 +13,9 @@
 #include "spacer.h"
 #include "score.h"
 #include "mscore.h"
+#include "xml.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   LayoutBreak
@@ -22,16 +24,16 @@
 Spacer::Spacer(Score* score)
    : Element(score)
       {
-      _subtype = SPACER_UP;
+      _spacerType = SpacerType::UP;
       _gap = 0.0;
       }
 
 Spacer::Spacer(const Spacer& s)
    : Element(s)
       {
-      _gap    = s._gap;
-      path    = s.path;
-      _subtype = s._subtype;
+      _gap        = s._gap;
+      path        = s.path;
+      _spacerType = s._spacerType;
       }
 
 //---------------------------------------------------------
@@ -43,7 +45,7 @@ void Spacer::draw(QPainter* painter) const
       if (score()->printing() || !score()->showUnprintable())
             return;
       QPen pen(selected() ? MScore::selectColor[0] : MScore::layoutBreakColor,
-         spatium() * 0.4);
+         spatium() * 0.3);
       painter->setPen(pen);
       painter->setBrush(Qt::NoBrush);
       painter->drawPath(path);
@@ -60,25 +62,34 @@ void Spacer::layout0()
       path    = QPainterPath();
       qreal w = _spatium;
       qreal b = w * .5;
-      qreal h = _gap;
+      qreal h = parent() ? _gap : qMin(_gap, spatium() * 4.0);    // limit length for palette
 
-      if (subtype() == SPACER_DOWN) {
-            path.lineTo(w, 0.0);
-            path.moveTo(b, 0.0);
-            path.lineTo(b, h);
-            path.lineTo(0.0, h-b);
-            path.moveTo(b, h);
-            path.lineTo(w, h-b);
-            }
-      else if (subtype() == SPACER_UP) {
-            path.moveTo(b, 0.0);
-            path.lineTo(0.0, b);
-            path.moveTo(b, 0.0);
-            path.lineTo(w, b);
-            path.moveTo(b, 0.0);
-            path.lineTo(b, h);
-            path.moveTo(0.0, h);
-            path.lineTo(w, h);
+      switch (spacerType()) {
+            case SpacerType::DOWN:
+                  path.lineTo(w, 0.0);
+                  path.moveTo(b, 0.0);
+                  path.lineTo(b, h);
+                  path.lineTo(0.0, h-b);
+                  path.moveTo(b, h);
+                  path.lineTo(w, h-b);
+                  break;
+            case SpacerType::UP:
+                  path.moveTo(b, 0.0);
+                  path.lineTo(0.0, b);
+                  path.moveTo(b, 0.0);
+                  path.lineTo(w, b);
+                  path.moveTo(b, 0.0);
+                  path.lineTo(b, h);
+                  path.moveTo(0.0, h);
+                  path.lineTo(w, h);
+                  break;
+            case SpacerType::FIXED:
+                  path.lineTo(w, 0.0);
+                  path.moveTo(b, 0.0);
+                  path.lineTo(b, h);
+                  path.moveTo(0.0, h);
+                  path.lineTo(w, h);
+                  break;
             }
       qreal lw = _spatium * 0.4;
       QRectF bb(0, 0, w, h);
@@ -105,58 +116,68 @@ void Spacer::spatiumChanged(qreal ov, qreal nv)
       _gap = (_gap / ov) * nv;
       layout0();
       }
-
 //---------------------------------------------------------
-//   setSubtype
+//   startEdit
 //---------------------------------------------------------
 
-void Spacer::setSubtype(SpacerType val)
+void Spacer::startEdit(EditData& ed)
       {
-      _subtype = val;
-      layout0();
+      Element::startEdit(ed);
+      ed.grips   = 1;
+      ed.curGrip = Grip::START;
       }
 
 //---------------------------------------------------------
 //   editDrag
 //---------------------------------------------------------
 
-void Spacer::editDrag(const EditData& ed)
+void Spacer::editDrag(EditData& ed)
       {
       qreal s = ed.delta.y();
-      if (subtype() == SPACER_DOWN)
-            _gap += s;
-      else if (subtype() == SPACER_UP)
-            _gap -= s;
+
+      switch (spacerType()) {
+            case SpacerType::DOWN:
+            case SpacerType::FIXED:
+                  _gap += s;
+                  break;
+            case SpacerType::UP:
+                  _gap -= s;
+                  break;
+            }
       if (_gap < spatium() * 2.0)
             _gap = spatium() * 2;
       layout0();
-      score()->setLayoutAll(true);
+      score()->setLayoutAll();
       }
 
 //---------------------------------------------------------
 //   updateGrips
 //---------------------------------------------------------
 
-void Spacer::updateGrips(int* grips, QRectF* grip) const
+void Spacer::updateGrips(EditData& ed) const
       {
-      *grips         = 1;
       qreal _spatium = spatium();
       QPointF p;
-      if (subtype() == SPACER_DOWN)
-            p = QPointF(_spatium * .5, _gap);
-      else if (subtype() == SPACER_UP)
-            p = QPointF(_spatium * .5, 0.0);
-      grip[0].translate(pagePos() + p);
+      switch (spacerType()) {
+            case SpacerType::DOWN:
+            case SpacerType::FIXED:
+                  p = QPointF(_spatium * .5, _gap);
+                  break;
+            case SpacerType::UP:
+                  p = QPointF(_spatium * .5, 0.0);
+                  break;
+            }
+      ed.grip[0].translate(pagePos() + p);
       }
 
 //---------------------------------------------------------
 //   write
 //---------------------------------------------------------
 
-void Spacer::write(Xml& xml) const
+void Spacer::write(XmlWriter& xml) const
       {
-      xml.stag(name());
-      xml.tag("subtype", _subtype);
+      xml.stag(this);
+      xml.tag("subtype", int(_spacerType));
       Element::writeProperties(xml);
       xml.tag("space", _gap / spatium());
       xml.etag();
@@ -171,7 +192,7 @@ void Spacer::read(XmlReader& e)
       while (e.readNextStartElement()) {
             const QStringRef& tag(e.name());
             if (tag == "subtype")
-                  _subtype = SpacerType(e.readInt());
+                  _spacerType = SpacerType(e.readInt());
             else if (tag == "space")
                   _gap = e.readDouble() * spatium();
             else if (!Element::readProperties(e))
@@ -184,10 +205,11 @@ void Spacer::read(XmlReader& e)
 //   getProperty
 //---------------------------------------------------------
 
-QVariant Spacer::getProperty(P_ID propertyId) const
+QVariant Spacer::getProperty(Pid propertyId) const
       {
-      switch(propertyId) {
-            case P_SPACE: return gap();
+      switch (propertyId) {
+            case Pid::SPACE:
+                  return gap();
             default:
                   return Element::getProperty(propertyId);
             }
@@ -197,10 +219,10 @@ QVariant Spacer::getProperty(P_ID propertyId) const
 //   setProperty
 //---------------------------------------------------------
 
-bool Spacer::setProperty(P_ID propertyId, const QVariant& v)
+bool Spacer::setProperty(Pid propertyId, const QVariant& v)
       {
-      switch(propertyId) {
-            case P_SPACE:
+      switch (propertyId) {
+            case Pid::SPACE:
                   setGap(v.toDouble());
                   break;
             default:
@@ -209,7 +231,7 @@ bool Spacer::setProperty(P_ID propertyId, const QVariant& v)
                   break;
             }
       layout0();
-      score()->setLayoutAll(true);
+      score()->setLayoutAll();
       setGenerated(false);
       return true;
       }
@@ -218,13 +240,16 @@ bool Spacer::setProperty(P_ID propertyId, const QVariant& v)
 //   propertyDefault
 //---------------------------------------------------------
 
-QVariant Spacer::propertyDefault(P_ID id) const
+QVariant Spacer::propertyDefault(Pid id) const
       {
-      switch(id) {
-            case P_SPACE: return QVariant(0.0);
+      switch (id) {
+            case Pid::SPACE:
+                  return QVariant(0.0);
             default:
                   return Element::propertyDefault(id);
             }
       }
 
+
+}
 

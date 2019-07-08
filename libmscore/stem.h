@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -16,57 +15,66 @@
 
 #include "element.h"
 
+namespace Ms {
+
 class Chord;
-class QPainter;
 
 //---------------------------------------------------------
 //   @@ Stem
-///   Graphic representation of a note stem.
+///    Graphic representation of a note stem.
 //---------------------------------------------------------
 
-class Stem : public Element {
-      Q_OBJECT
-
-      QLineF line;            // p1 is attached to note head
+class Stem final : public Element {
+      QLineF line;                  // p1 is attached to notehead
+      qreal _lineWidth;
       qreal _userLen;
-      qreal _len;             // allways positive
+      qreal _len       { 0.0 };     // always positive
 
    public:
-      Stem(Score*);
-      Stem &operator=(const Stem&);
+      Stem(Score* = 0);
+      Stem &operator=(const Stem&) = delete;
 
-      virtual Stem* clone() const      { return new Stem(*this); }
-      virtual ElementType type() const { return STEM; }
-      virtual void draw(QPainter*) const;
-      virtual bool isEditable() const  { return true; }
-      virtual void layout();
-      virtual void spatiumChanged(qreal /*oldValue*/, qreal /*newValue*/);
+      virtual Stem* clone() const override        { return new Stem(*this); }
+      virtual ElementType type() const override   { return ElementType::STEM; }
+      virtual void draw(QPainter*) const override;
+      virtual bool isEditable() const override    { return true; }
+      virtual void layout() override;
+      virtual void spatiumChanged(qreal /*oldValue*/, qreal /*newValue*/) override;
 
-      virtual void editDrag(const EditData&);
-      virtual void updateGrips(int*, QRectF*) const;
-      virtual void write(Xml& xml) const;
-      virtual void read(XmlReader& e);
-      virtual void reset();
-      virtual bool acceptDrop(MuseScoreView*, const QPointF&, Element*) const;
-      virtual Element* drop(const DropData&);
+      virtual void startEdit(EditData&) override;
+      virtual void editDrag(EditData&) override;
+      virtual void updateGrips(EditData&) const override;
+      virtual void write(XmlWriter& xml) const override;
+      virtual void read(XmlReader& e) override;
+      virtual bool readProperties(XmlReader&) override;
+      virtual void reset() override;
+      virtual bool acceptDrop(EditData&) const override;
+      virtual Element* drop(EditData&) override;
 
-      virtual QVariant getProperty(P_ID propertyId) const;
-      virtual bool setProperty(P_ID propertyId, const QVariant&);
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid id) const override;
 
-      Chord* chord() const            { return (Chord*)parent(); }
+      virtual int vStaffIdx() const override;
+
+      Chord* chord() const            { return toChord(parent()); }
       bool up() const;
 
       qreal userLen() const           { return _userLen; }
       void setUserLen(qreal l)        { _userLen = l; }
 
-      qreal lineWidth() const;
+      qreal lineWidth() const         { return _lineWidth; }
+      void setLineWidth(qreal w)      { _lineWidth = w; }
 
-      QPointF hookPos() const         { return (pos() + line.p2()); }   // in chord coordinates
       void setLen(qreal l);
       qreal len() const               { return _len; }
+
+      QPointF hookPos() const;
       qreal stemLen() const;
       QPointF p2() const              { return line.p2(); }
       };
 
+
+}     // namespace Ms
 #endif
 

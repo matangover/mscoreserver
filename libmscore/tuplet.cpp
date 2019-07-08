@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: tuplet.cpp 5499 2012-03-28 12:23:57Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -16,11 +15,33 @@
 #include "chord.h"
 #include "note.h"
 #include "xml.h"
+#include "staff.h"
 #include "style.h"
 #include "text.h"
 #include "element.h"
 #include "undo.h"
 #include "stem.h"
+#include "beam.h"
+#include "measure.h"
+#include "system.h"
+
+namespace Ms {
+
+//---------------------------------------------------------
+//   tupletStyle
+//---------------------------------------------------------
+
+static const ElementStyle tupletStyle {
+      { Sid::tupletDirection,                    Pid::DIRECTION               },
+      { Sid::tupletNumberType,                   Pid::NUMBER_TYPE             },
+      { Sid::tupletBracketType,                  Pid::BRACKET_TYPE            },
+      { Sid::tupletBracketWidth,                 Pid::LINE_WIDTH              },
+      { Sid::tupletFontFace,                     Pid::FONT_FACE               },
+      { Sid::tupletFontSize,                     Pid::FONT_SIZE               },
+      { Sid::tupletFontStyle,                    Pid::FONT_STYLE              },
+      { Sid::tupletAlign,                        Pid::ALIGN                   },
+      { Sid::tupletMinDistance,                  Pid::MIN_DISTANCE            },
+      };
 
 //---------------------------------------------------------
 //   Tuplet
@@ -29,37 +50,34 @@
 Tuplet::Tuplet(Score* s)
   : DurationElement(s)
       {
-      setFlags(ELEMENT_MOVABLE | ELEMENT_SELECTABLE);
-      _numberType   = Tuplet::SHOW_NUMBER;
-      _bracketType  = Tuplet::AUTO_BRACKET;
+      _ratio        = Fraction(1, 1);
       _number       = 0;
       _hasBracket   = false;
       _isUp         = true;
-      _direction    = MScore::AUTO;
+      initElementStyle(&tupletStyle);
       }
 
 Tuplet::Tuplet(const Tuplet& t)
    : DurationElement(t)
       {
       _tick         = t._tick;
-      _numberType   = t._numberType;
-      _bracketType  = t._bracketType;
       _hasBracket   = t._hasBracket;
       _ratio        = t._ratio;
       _baseLen      = t._baseLen;
-
       _direction    = t._direction;
-      _isUp         = t._isUp;
+      _numberType   = t._numberType;
+      _bracketType  = t._bracketType;
+      _bracketWidth = t._bracketWidth;
 
-      p1            = t.p1;
-      p2            = t.p2;
-      _p1           = t._p1;
-      _p2           = t._p2;
+      _isUp          = t._isUp;
 
-      if (t._number)
-            _number = new Text(*t._number);
-      else
-            _number = 0;
+      p1             = t.p1;
+      p2             = t.p2;
+      _p1            = t._p1;
+      _p2            = t._p2;
+
+      // recreated on layout
+      _number = 0;
       }
 
 //---------------------------------------------------------
@@ -68,11 +86,8 @@ Tuplet::Tuplet(const Tuplet& t)
 
 Tuplet::~Tuplet()
       {
-      //
-      // delete all references
-      //
-      foreach(DurationElement* e, _elements)
-            e->setTuplet(0);
+      for (DurationElement* de : _elements)
+            de->setTuplet(nullptr);
       delete _number;
       }
 
@@ -98,6 +113,47 @@ void Tuplet::setVisible(bool f)
             _number->setVisible(f);
       }
 
+#if 0
+//---------------------------------------------------------
+//   tick
+//---------------------------------------------------------
+
+Fraction Tuplet::tick() const
+      {
+      std::vector<DurationElement*> _elements;
+
+      const DurationElement* de = this;
+      while (de->isTuplet()) {
+            const Tuplet* t = toTuplet(de);
+            if (t->_elements.empty())
+                  return Fraction(0, 1);
+            de = t->_elements.front();
+            }
+      return toChordRest(de)->tick();
+      }
+#endif
+
+//---------------------------------------------------------
+//   rtick
+//---------------------------------------------------------
+
+Fraction Tuplet::rtick() const
+      {
+      return tick() - measure()->tick();
+      }
+
+//---------------------------------------------------------
+//   resetNumberProperty
+//   reset number properties to default values
+//   Set FONT_ITALIC to true, because for tuplets number should be italic
+//---------------------------------------------------------
+
+void Tuplet::resetNumberProperty()
+      {
+      for (auto p : { Pid::FONT_FACE, Pid::FONT_STYLE, Pid::FONT_SIZE, Pid::ALIGN })
+            _number->resetProperty(p);
+      }
+
 //---------------------------------------------------------
 //   layout
 //---------------------------------------------------------
@@ -108,18 +164,27 @@ void Tuplet::layout()
             qDebug("Tuplet::layout(): tuplet is empty");
             return;
             }
+      // is in a TAB without stems, skip any format: tuplets are not shown
+      if (staff() && staff()->isTabStaff(tick()) && staff()->staffType(tick())->slashStyle())
+            return;
+
+      //
+      // create tuplet number if necessary
+      //
       qreal _spatium = spatium();
-      if (_numberType != NO_TEXT) {
+      if (_numberType != TupletNumberType::NO_TEXT) {
             if (_number == 0) {
-                  _number = new Text(score());
-                  _number->setTextStyle(score()->textStyle(TEXT_STYLE_TUPLET));
+                  _number = new Text(score(), Tid::TUPLET);
+                  _number->setComposition(true);
+                  _number->setTrack(track());
                   _number->setParent(this);
                   _number->setVisible(visible());
+                  resetNumberProperty();
                   }
-            if (_numberType == SHOW_NUMBER)
-                  _number->setText(QString("%1").arg(_ratio.numerator()));
+            if (_numberType == TupletNumberType::SHOW_NUMBER)
+                  _number->setXmlText(QString("%1").arg(_ratio.numerator()));
             else
-                  _number->setText(QString("%1:%2").arg(_ratio.numerator()).arg(_ratio.denominator()));
+                  _number->setXmlText(QString("%1:%2").arg(_ratio.numerator()).arg(_ratio.denominator()));
             }
       else {
             if (_number) {
@@ -132,153 +197,223 @@ void Tuplet::layout()
       //
       // find out main direction
       //
-      if (_direction == MScore::AUTO) {
+      if (_direction == Direction::AUTO) {
             int up = 1;
-            foreach(const DurationElement* e, _elements) {
-                  if (e->type() == CHORD) {
-                        const Chord* c = static_cast<const Chord*>(e);
-                        if (c->stemDirection() != MScore::AUTO)
-                              up += c->stemDirection() == MScore::UP ? 1000 : -1000;
-                        else
+            for (const DurationElement* e : _elements) {
+                  if (e->isChord()) {
+                        const Chord* c = toChord(e);
+                        if (c->stemDirection() != Direction::AUTO)
+                              up += c->stemDirection() == Direction::UP ? 1000 : -1000;
+                        else {
                               up += c->up() ? 1 : -1;
+                              }
                         }
-                  else if (e->type() == TUPLET) {
+                  else if (e->isTuplet()) {
                         // TODO
                         }
                   }
             _isUp = up > 0;
             }
       else
-            _isUp = _direction == MScore::UP;
+            _isUp = _direction == Direction::UP;
 
       //
-      // set all elements to main direction
+      // find first and last chord of tuplet
+      // (tuplets can be nested)
       //
-      bool tupletContainsRest = false;
-      foreach(DurationElement* e, _elements) {
-            if (e->type() == REST) {
-                  tupletContainsRest = true;
-                  break;
-                  }
-            }
-
+      bool nested = false;
       const DurationElement* cr1 = _elements.front();
-      while (cr1->type() == TUPLET) {
-            const Tuplet* t = static_cast<const Tuplet*>(cr1);
+      while (cr1->isTuplet()) {
+            const Tuplet* t = toTuplet(cr1);
             if (t->elements().empty())
                   break;
+            nested = true;
             cr1 = t->elements().front();
             }
       const DurationElement* cr2 = _elements.back();
-      while (cr2->type() == TUPLET) {
-            const Tuplet* t = static_cast<const Tuplet*>(cr2);
+      while (cr2->isTuplet()) {
+            const Tuplet* t = toTuplet(cr2);
             if (t->elements().empty())
                   break;
+            nested = true;
             cr2 = t->elements().back();
             }
 
       //
       //   shall we draw a bracket?
       //
-      if (_bracketType == AUTO_BRACKET) {
-            _hasBracket = tupletContainsRest;
-            if (!_hasBracket) {
-                  foreach(DurationElement* e, _elements) {
-                        if (e->type() == TUPLET) {
+      if (_bracketType == TupletBracketType::AUTO_BRACKET) {
+            _hasBracket = false;
+            for (DurationElement* e : _elements) {
+                  if (e->isTuplet() || e->isRest()) {
+                        _hasBracket = true;
+                        break;
+                        }
+                  else if (e->isChordRest()) {
+                        ChordRest* cr = toChordRest(e);
+                        //
+                        // maybe we should check for more than one beam
+                        //
+                        if (cr->beam() == 0) {
                               _hasBracket = true;
                               break;
-                              }
-                        else if (e->isChordRest()) {
-                              ChordRest* cr = static_cast<ChordRest*>(e);
-                              //
-                              // maybe we should check for more than one beam
-                              //
-                              if (cr->beam() == 0) {
-                                    _hasBracket = true;
-                                    break;
-                                    }
                               }
                         }
                   }
             }
       else
-            _hasBracket = _bracketType != SHOW_NO_BRACKET;
+            _hasBracket = _bracketType != TupletBracketType::SHOW_NO_BRACKET;
 
 
       //
       //    calculate bracket start and end point p1 p2
       //
-      qreal headDistance = _spatium * .75;
+      qreal maxSlope      = score()->styleD(Sid::tupletMaxSlope);
+      bool outOfStaff     = score()->styleB(Sid::tupletOufOfStaff);
+      qreal vHeadDistance = score()->styleP(Sid::tupletVHeadDistance);
+      qreal vStemDistance = score()->styleP(Sid::tupletVStemDistance);
+      qreal stemLeft      = score()->styleP(Sid::tupletStemLeftDistance);
+      qreal stemRight     = score()->styleP(Sid::tupletStemRightDistance);
+      qreal noteLeft      = score()->styleP(Sid::tupletNoteLeftDistance);
+      qreal noteRight     = score()->styleP(Sid::tupletNoteRightDistance);
+
+      int move = 0;
+      setTrack(cr1->staffIdx() * VOICES + voice());
+      if (outOfStaff && cr1->isChordRest() && cr2->isChordRest()) {
+            // account for staff move when adjusting bracket to avoid staff
+            // but don't attempt adjustment unless both endpoints are in same staff
+            // and not a nested tuplet
+            if (toChordRest(cr1)->staffMove() == toChordRest(cr2)->staffMove() && !tuplet() && !nested) {
+                  move = toChordRest(cr1)->staffMove();
+                  if (move == 1)
+                        setTrack(cr1->vStaffIdx() * VOICES + voice());
+                  }
+            else
+                  outOfStaff = false;
+            }
+
+      qreal l1  =  score()->styleP(Sid::tupletBracketHookHeight);
+      qreal l2l = vHeadDistance;    // left bracket vertical distance
+      qreal l2r = vHeadDistance;    // right bracket vertical distance right
+
+      if (_isUp)
+            vHeadDistance = -vHeadDistance;
+
+      p1      = cr1->pagePos();
+      p2      = cr2->pagePos();
+
+      p1.rx() -= noteLeft;
+      p2.rx() += score()->noteHeadWidth() + noteRight;
+      p1.ry() += vHeadDistance;        // TODO: Direction ?
+      p2.ry() += vHeadDistance;
+
+      qreal xx1 = p1.x(); // use to center the number on the beam
+
+      // follow beam angle if one beam extends over entire tuplet
+      bool followBeam = false;
+      qreal beamAdjust = 0.0;
+      if (cr1->beam() && cr1->beam() == cr2->beam()) {
+            followBeam = true;
+            beamAdjust = point(score()->styleS(Sid::beamWidth)) * 0.5 * mag();
+            }
+
       if (_isUp) {
-            p1       = cr1->abbox().topLeft();
-            p1.ry() -= headDistance;
-            p2       = cr2->abbox().topRight();
-            p2.ry() -= headDistance;
-
-            if (cr1->type() == CHORD) {
-                  const Chord* chord1 = static_cast<const Chord*>(cr1);
+            if (cr1->isChord()) {
+                  const Chord* chord1 = toChord(cr1);
                   Stem* stem = chord1->stem();
-
-                  if (stem && chord1->up()) {
-                        p1.setY(stem->abbox().y());
-                        if (chord1->beam())
-                              p1.setX(stem->abbox().x());
-                        }
-                  else if ((cr2->type() == CHORD) && stem && !chord1->up()) {
-                        const Chord* chord2 = static_cast<const Chord*>(cr2);
-                        Stem* stem2 = chord2->stem();
-                        if (stem2) {
-                              int l1 = chord1->upNote()->line();
-                              int l2 = chord2->upNote()->line();
-                              p1.ry() = stem2->abbox().top() + _spatium * .5 * (l1 - l2);
+                  if (stem)
+                        xx1 = stem->abbox().x();
+                  if (chord1->up()) {
+                        if (stem) {
+                              if (followBeam)
+                                    p1.ry() = stem->abbox().y() - beamAdjust;
+                              else if (chord1->beam())
+                                    p1.ry() = chord1->beam()->abbox().y();
+                              else
+                                    p1.ry() = stem->abbox().y();
+                              l2l = vStemDistance;
                               }
+                        else {
+                              p1.ry() = chord1->upNote()->abbox().top(); // whole note
+                              }
+                        }
+                  else if (!chord1->up()) {
+                        p1.ry() = chord1->upNote()->abbox().top();
+                        if (stem)
+                              p1.rx() = cr1->pagePos().x() - stemLeft;
                         }
                   }
 
-            if (cr2->type() == CHORD) {
-                  const Chord* chord2 = static_cast<const Chord*>(cr2);
+            if (cr2->isChord()) {
+                  const Chord* chord2 = toChord(cr2);
                   Stem* stem = chord2->stem();
                   if (stem && chord2->up()) {
-                        p2.setY(stem->abbox().top());
-                        if (chord2->beam())
-                              p2.setX(stem->abbox().x());
+                        if (followBeam)
+                              p2.ry() = stem->abbox().top() - beamAdjust;
+                        else if (chord2->beam() && !chord2->staffMove() && !chord2->beam()->cross())
+                              p2.ry() = chord2->beam()->abbox().top();
+                        else
+                              p2.ry() = stem->abbox().top();
+                        l2r = vStemDistance;
+                        p2.rx() = chord2->pagePos().x() + chord2->maxHeadWidth() + stemRight;
                         }
-                  else if ((cr1->type() == CHORD) && stem && !chord2->up()) {
-                        const Chord* chord1 = static_cast<const Chord*>(cr1);
-                        int l1 = chord1->upNote()->line();
-                        int l2 = chord2->upNote()->line();
-                        p2.ry() = p1.ry() + _spatium * .5 * (l2 - l1);
+                  else {
+                        p2.ry() = chord2->upNote()->abbox().top();
                         }
                   }
             //
             // special case: one of the bracket endpoints is
             // a rest
             //
-            if (cr1->type() != CHORD && cr2->type() == CHORD) {
+            if (cr1->isChord() && cr2->isChord()) {
                   if (p2.y() < p1.y())
                         p1.setY(p2.y());
                   else
                         p2.setY(p1.y());
                   }
-            else if (cr1->type() == CHORD && cr2->type() != CHORD) {
+            else if (cr1->isChord() && !cr2->isChord()) {
                   if (p1.y() < p2.y())
                         p2.setY(p1.y());
                   else
                         p1.setY(p2.y());
                   }
 
-            // check for collisions
+            // outOfStaff
+            if (outOfStaff) {
+                  qreal min = cr1->measure()->staffabbox(cr1->staffIdx() + move).y();
+                  if (min < p1.y()) {
+                        p1.ry() = min;
+                        l2l = vStemDistance;
+                        }
+                  min = cr2->measure()->staffabbox(cr2->staffIdx() + move).y();
+                  if (min < p2.y()) {
+                        p2.ry() = min;
+                        l2r = vStemDistance;
+                        }
+                  }
 
-            int n = _elements.size();
+            // check that slope is no more than max
+            qreal d = (p2.y() - p1.y())/(p2.x() - p1.x());
+            if (d  < -maxSlope) {
+                  // move p1 y up
+                  p1.ry() = p2.y() + maxSlope * (p2.x() - p1.x());
+                  }
+            else if (d  > maxSlope) {
+                  // move p2 y up
+                  p2.ry() = p1.ry() + maxSlope * (p2.x() - p1.x());
+                  }
+
+            // check for collisions
+            size_t n = _elements.size();
             if (n >= 3) {
-                  qreal d = (p2.y() - p1.y())/(p2.x() - p1.x());
-                  for (int i = 1; i < (n-1); ++i) {
+                  d = (p2.y() - p1.y())/(p2.x() - p1.x());
+                  for (size_t i = 1; i < (n-1); ++i) {
                         Element* e = _elements[i];
-                        if (e->type() == CHORD) {
-                              const Chord* chord = static_cast<const Chord*>(e);
+                        if (e->isChord()) {
+                              const Chord* chord = toChord(e);
                               const Stem* stem = chord->stem();
                               if (stem) {
-                                    QRectF r(chord->up() ? stem->abbox() : chord->abbox());
+                                    QRectF r(chord->up() ? stem->abbox() : chord->upNote()->abbox());
                                     qreal y3 = r.top();
                                     qreal x3 = r.x() + r.width() * .5;
                                     qreal y0 = p1.y() + (x3 - p1.x()) * d;
@@ -293,71 +428,102 @@ void Tuplet::layout()
                   }
             }
       else {
-            p1 = cr1->abbox().bottomLeft();
-            p1.ry() += headDistance;
-
-            if (cr1->type() == CHORD) {
-                  const Chord* chord1 = static_cast<const Chord*>(cr1);
+            if (cr1->isChord()) {
+                  const Chord* chord1 = toChord(cr1);
                   Stem* stem = chord1->stem();
-                  if (stem && !chord1->up()) {
-                        p1.setY(stem->abbox().bottom());
-                        if (chord1->beam())
-                              p1.setX(stem->abbox().x());
-                        }
-                  else if ((cr2->type() == CHORD) && stem && chord1->up()) {
-                        const Chord* chord2 = static_cast<const Chord*>(cr2);
-                        Stem* stem2 = chord2->stem();
-                        if (stem2) {
-                              int l1 = chord1->upNote()->line();
-                              int l2 = chord2->upNote()->line();
-                              p1.ry() = stem2->abbox().bottom() + _spatium * .5 * (l1 - l2);
+                  if (stem)
+                        xx1 = stem->abbox().x();
+                  if (!chord1->up()) {
+                        if (stem) {
+                              if (followBeam)
+                                    p1.ry() = stem->abbox().bottom() + beamAdjust;
+                              else if (chord1->beam())
+                                    p1.ry() = chord1->beam()->abbox().bottom();
+                              else
+                                    p1.ry() = stem->abbox().bottom();
+                              l2l = vStemDistance;
+                              p1.rx() = cr1->pagePos().x() - stemLeft;
+                              }
+                        else {
+                              p1.ry() = chord1->downNote()->abbox().bottom(); // whole note
                               }
                         }
+                  else if (chord1->up()) {
+                        p1.ry() = chord1->downNote()->abbox().bottom();
+                        }
                   }
 
-            p2 = cr2->abbox().bottomRight();
-            p2.ry() += headDistance;
-
-            if (cr2->type() == CHORD) {
-                  const Chord* chord2 = static_cast<const Chord*>(cr2);
+            if (cr2->isChord()) {
+                  const Chord* chord2 = toChord(cr2);
                   Stem* stem = chord2->stem();
                   if (stem && !chord2->up()) {
-                        if (chord2->beam())
-                              p2.setX(stem->abbox().x());
-                        p2.setY(stem->abbox().bottom());
+                        // if (chord2->beam())
+                        //      p2.setX(stem->abbox().x());
+                        if (followBeam)                                          //??
+                              p2.ry() = stem->abbox().bottom() + beamAdjust;     //??
+                        if (chord2->beam() && !chord2->staffMove() && !chord2->beam()->cross())
+                              p2.ry() = chord2->beam()->abbox().bottom();
+                        else
+                              p2.ry() = stem->abbox().bottom();
+                        l2r = vStemDistance;
                         }
-                  else if ((cr1->type() == CHORD) && stem && chord2->up()) {
-                        const Chord* chord1 = static_cast<const Chord*>(cr1);
-                        int l1 = chord1->upNote()->line();
-                        int l2 = chord2->upNote()->line();
-                        p2.ry() = p1.ry() + _spatium * .5 * (l2 - l1);
+                  else {
+                        p2.ry() = chord2->downNote()->abbox().bottom();
+                        if (stem)
+                              p2.rx() = chord2->pagePos().x() + chord2->maxHeadWidth() + stemRight;
                         }
                   }
-            if (cr1->type() != CHORD && cr2->type() == CHORD) {
+            //
+            // special case: one of the bracket endpoints is
+            // a rest
+            //
+            if (!cr1->isChord() && cr2->isChord()) {
                   if (p2.y() > p1.y())
                         p1.setY(p2.y());
                   else
                         p2.setY(p1.y());
                   }
-            else if (cr1->type() == CHORD && cr2->type() != CHORD) {
+            else if (cr1->isChord() && !cr2->isChord()) {
                   if (p1.y() > p2.y())
                         p2.setY(p1.y());
                   else
                         p1.setY(p2.y());
                   }
+            // outOfStaff
+            if (outOfStaff) {
+                  qreal max = cr1->measure()->staffabbox(cr1->staffIdx() + move).bottom();
+                  if (max > p1.y()) {
+                        p1.ry() = max;
+                        l2l = vStemDistance;
+                        }
+                  max = cr2->measure()->staffabbox(cr2->staffIdx() + move).bottom();
+                  if (max > p2.y()) {
+                        p2.ry() = max;
+                        l2r = vStemDistance;
+                        }
+                  }
+            // check that slope is no more than max
+            qreal d = (p2.y() - p1.y())/(p2.x() - p1.x());
+            if (d  < -maxSlope) {
+                  // move p1 y up
+                  p2.ry() = p1.y() - maxSlope * (p2.x() - p1.x());
+                  }
+            else if (d  > maxSlope) {
+                  // move p2 y up
+                  p1.ry() = p2.ry() - maxSlope * (p2.x() - p1.x());
+                  }
 
             // check for collisions
-
-            int n = _elements.size();
+            size_t n = _elements.size();
             if (n >= 3) {
-                  qreal d  = (p2.y() - p1.y())/(p2.x() - p1.x());
-                  for (int i = 1; i < (n-1); ++i) {
+                  d  = (p2.y() - p1.y())/(p2.x() - p1.x());
+                  for (size_t i = 1; i < (n-1); ++i) {
                         Element* e = _elements[i];
-                        if (e->type() == CHORD) {
-                              const Chord* chord = static_cast<const Chord*>(e);
+                        if (e->isChord()) {
+                              const Chord* chord = toChord(e);
                               const Stem* stem = chord->stem();
                               if (stem) {
-                                    QRectF r(chord->up() ? chord->abbox() : stem->abbox());
+                                    QRectF r(chord->up() ? chord->downNote()->abbox() : stem->abbox());
                                     qreal y3 = r.bottom();
                                     qreal x3 = r.x() + r.width() * .5;
                                     qreal y0 = p1.y() + (x3 - p1.x()) * d;
@@ -372,30 +538,52 @@ void Tuplet::layout()
                   }
             }
 
-      qreal l1 = _spatium;          // bracket tip height
-      qreal l2 = _spatium * .5;     // bracket distance to note
-
       setPos(0.0, 0.0);
       QPointF mp(parent()->pagePos());
+      if (parent()->isMeasure()) {
+            System* s = toMeasure(parent())->system();
+            if (s)
+                  mp.ry() += s->staff(staffIdx())->y();
+            }
       p1 -= mp;
       p2 -= mp;
 
       p1 += _p1;
       p2 += _p2;
+      xx1 -= mp.x();
+
+      p1.ry() -= l2l * (_isUp ? 1.0 : -1.0);
+      p2.ry() -= l2r * (_isUp ? 1.0 : -1.0);
+
+      // l2l l2r, mp, _p1, _p2 const
 
       // center number
       qreal x3 = 0.0;
-      qreal y3 = 0.0;
       qreal numberWidth = 0.0;
       if (_number) {
             _number->layout();
-            x3 = p1.x() + (p2.x() - p1.x()) * .5;
-
-            y3 = p1.y() + (p2.y() - p1.y()) * .5
-//               - _number->bbox().height() * .5
-               - (l1 + l2) * (_isUp ? 1.0 : -1.0);
-
             numberWidth = _number->bbox().width();
+
+            qreal y3 = p1.y() + (p2.y() - p1.y()) * .5 - l1 * (_isUp ? 1.0 : -1.0);
+            //
+            // for beamed tuplets, center number on beam
+            //
+            if (cr1->beam() && cr2->beam() && cr1->beam() == cr2->beam()) {
+                  const ChordRest* crr = toChordRest(cr1);
+                  if (_isUp == crr->up()) {
+                        qreal deltax = cr2->pagePos().x() - cr1->pagePos().x();
+                        x3 = xx1 + deltax * .5;
+                        }
+                  else {
+                        qreal deltax = p2.x() - p1.x();
+                        x3 = p1.x() + deltax * .5;
+                        }
+                  }
+            else {
+                  qreal deltax = p2.x() - p1.x();
+                  x3 = p1.x() + deltax * .5;
+                  }
+
             _number->setPos(QPointF(x3, y3) - ipos());
             }
 
@@ -404,47 +592,54 @@ void Tuplet::layout()
 
             if (_isUp) {
                   if (_number) {
-                        bracketL[0] = QPointF(p1.x(), p1.y() - l2);
-                        bracketL[1] = QPointF(p1.x(), p1.y() - l1 - l2);
+                        bracketL[0] = QPointF(p1.x(), p1.y());
+                        bracketL[1] = QPointF(p1.x(), p1.y() - l1);
+                        //set width of bracket hole
                         qreal x     = x3 - numberWidth * .5 - _spatium * .5;
-                        qreal y     = p1.y() + (x - p1.x()) * slope;
-                        bracketL[2] = QPointF(x,   y - l1 - l2);
 
+                        qreal y     = p1.y() + (x - p1.x()) * slope;
+                        bracketL[2] = QPointF(x,   y - l1);
+
+                        //set width of bracket hole
                         x           = x3 + numberWidth * .5 + _spatium * .5;
                         y           = p1.y() + (x - p1.x()) * slope;
-                        bracketR[0] = QPointF(x,   y - l1 - l2);
-                        bracketR[1] = QPointF(p2.x(), p2.y() - l1 - l2);
-                        bracketR[2] = QPointF(p2.x(), p2.y() - l2);
+                        bracketR[0] = QPointF(x,   y - l1);
+                        bracketR[1] = QPointF(p2.x(), p2.y() - l1);
+                        bracketR[2] = QPointF(p2.x(), p2.y());
                         }
                   else {
-                        bracketL[0] = QPointF(p1.x(), p1.y() - l2);
-                        bracketL[1] = QPointF(p1.x(), p1.y() - l1 - l2);
-                        bracketL[2] = QPointF(p2.x(), p2.y() - l1 - l2);
-                        bracketL[3] = QPointF(p2.x(), p2.y() - l2);
+                        bracketL[0] = QPointF(p1.x(), p1.y());
+                        bracketL[1] = QPointF(p1.x(), p1.y() - l1);
+                        bracketL[2] = QPointF(p2.x(), p2.y() - l1);
+                        bracketL[3] = QPointF(p2.x(), p2.y());
                         }
                   }
             else {
                   if (_number) {
-                        bracketL[0] = QPointF(p1.x(), p1.y() + l2);
-                        bracketL[1] = QPointF(p1.x(), p1.y() + l1 + l2);
+                        bracketL[0] = QPointF(p1.x(), p1.y());
+                        bracketL[1] = QPointF(p1.x(), p1.y() + l1);
+                        //set width of bracket hole
                         qreal x     = x3 - numberWidth * .5 - _spatium * .5;
                         qreal y     = p1.y() + (x - p1.x()) * slope;
-                        bracketL[2] = QPointF(x,   y + l1 + l2);
+                        bracketL[2] = QPointF(x,   y + l1);
 
+                        //set width of bracket hole
                         x           = x3 + numberWidth * .5 + _spatium * .5;
                         y           = p1.y() + (x - p1.x()) * slope;
-                        bracketR[0] = QPointF(x,   y + l1 + l2);
-                        bracketR[1] = QPointF(p2.x(), p2.y() + l1 + l2);
-                        bracketR[2] = QPointF(p2.x(), p2.y() + l2);
+                        bracketR[0] = QPointF(x,   y + l1);
+                        bracketR[1] = QPointF(p2.x(), p2.y() + l1);
+                        bracketR[2] = QPointF(p2.x(), p2.y());
                         }
                   else {
-                        bracketL[0] = QPointF(p1.x(), p1.y() + l2);
-                        bracketL[1] = QPointF(p1.x(), p1.y() + l1 + l2);
-                        bracketL[2] = QPointF(p2.x(), p2.y() + l1 + l2);
-                        bracketL[3] = QPointF(p2.x(), p2.y() + l2);
+                        bracketL[0] = QPointF(p1.x(), p1.y());
+                        bracketL[1] = QPointF(p1.x(), p1.y() + l1);
+                        bracketL[2] = QPointF(p2.x(), p2.y() + l1);
+                        bracketL[3] = QPointF(p2.x(), p2.y());
                         }
                   }
             }
+
+      // collect bounding box
       QRectF r;
       if (_number) {
             r |= _number->bbox().translated(_number->pos());
@@ -460,6 +655,9 @@ void Tuplet::layout()
             r |= b;
             }
       setbbox(r);
+
+      if (outOfStaff && !cross())
+            autoplaceMeasureElement(_isUp, /* add to skyline */ true);
       }
 
 //---------------------------------------------------------
@@ -468,6 +666,10 @@ void Tuplet::layout()
 
 void Tuplet::draw(QPainter* painter) const
       {
+      // if in a TAB without stems, tuplets are not shown
+      if (staff() && staff()->isTabStaff(tick()) && staff()->staffType(tick())->slashStyle())
+            return;
+
       QColor color(curColor());
       if (_number) {
             painter->setPen(color);
@@ -477,7 +679,7 @@ void Tuplet::draw(QPainter* painter) const
             painter->translate(-pos);
             }
       if (_hasBracket) {
-            painter->setPen(QPen(color, spatium() * .1));
+            painter->setPen(QPen(color, _bracketWidth.val()));
             if (!_number)
                   painter->drawPolyline(bracketL, 4);
             else {
@@ -488,33 +690,88 @@ void Tuplet::draw(QPainter* painter) const
       }
 
 //---------------------------------------------------------
+//   Rect
+//    helper class
+//---------------------------------------------------------
+
+class Rect : public QRectF {
+   public:
+      Rect(const QPointF& p1, const QPointF& p2, qreal w);
+      };
+
+//---------------------------------------------------------
+//   Rect
+//    construct a rectangle out of a line with width w
+//---------------------------------------------------------
+
+Rect::Rect(const QPointF& p1, const QPointF& p2, qreal w)
+      {
+      qreal w2 = w * .5;
+      setCoords(qMin(p1.x(), p2.x()) - w2, qMin(p1.y(), p2.y()) - w2,  qMax(p1.x(), p2.x()) + w2, qMax(p1.y(), p2.y()) + w2);
+      }
+
+//---------------------------------------------------------
+//   shape
+//---------------------------------------------------------
+
+Shape Tuplet::shape() const
+      {
+      Shape s;
+      if (_hasBracket) {
+            qreal w = _bracketWidth.val();
+            s.add(Rect(bracketL[0], bracketL[1], w));
+            s.add(Rect(bracketL[1], bracketL[2], w));
+            if (_number) {
+                  s.add(Rect(bracketR[0], bracketR[1], w));
+                  s.add(Rect(bracketR[1], bracketR[2], w));
+                  }
+            else {
+                  s.add(Rect(bracketL[2], bracketL[3], w));
+                  }
+            }
+      if (_number)
+            s.add(_number->bbox().translated(_number->pos()));
+      return s;
+      }
+
+//---------------------------------------------------------
+//   scanElements
+//---------------------------------------------------------
+
+void Tuplet::scanElements(void* data, void (*func)(void*, Element*), bool all)
+      {
+      if (_number && all)
+            func(data, _number);
+      func(data, this);
+      }
+
+//---------------------------------------------------------
 //   write
 //---------------------------------------------------------
 
-void Tuplet::write(Xml& xml) const
+void Tuplet::write(XmlWriter& xml) const
       {
-      xml.stag(QString("Tuplet id=\"%1\"").arg(_id));
-      if (tuplet())
-            xml.tag("Tuplet", tuplet()->id());
+      xml.stag(this);
       Element::writeProperties(xml);
 
-      writeProperty(xml, P_DIRECTION);
-      writeProperty(xml, P_NUMBER_TYPE);
-      writeProperty(xml, P_BRACKET_TYPE);
-      writeProperty(xml, P_NORMAL_NOTES);
-      writeProperty(xml, P_ACTUAL_NOTES);
-      writeProperty(xml, P_P1);
-      writeProperty(xml, P_P2);
+      writeProperty(xml, Pid::DIRECTION);
+      writeProperty(xml, Pid::NUMBER_TYPE);
+      writeProperty(xml, Pid::BRACKET_TYPE);
+      writeProperty(xml, Pid::LINE_WIDTH);
+      writeProperty(xml, Pid::NORMAL_NOTES);
+      writeProperty(xml, Pid::ACTUAL_NOTES);
+      writeProperty(xml, Pid::P1);
+      writeProperty(xml, Pid::P2);
 
       xml.tag("baseNote", _baseLen.name());
+      if (int dots = _baseLen.dots())
+            xml.tag("baseDots", dots);
 
       if (_number) {
-            xml.stag("Number");
+            xml.stag("Number", _number);
             _number->writeProperties(xml);
             xml.etag();
             }
-      if (!userOff().isNull())
-            xml.tag("offset", userOff() / spatium());
       xml.etag();
       }
 
@@ -524,59 +781,54 @@ void Tuplet::write(Xml& xml) const
 
 void Tuplet::read(XmlReader& e)
       {
-      int bl = -1;
-      _id    = e.intAttribute("id", 0);
-
+      _id = e.intAttribute("id", 0);
       while (e.readNextStartElement()) {
-            const QStringRef& tag(e.name());
-
-            if (tag == "direction")
-                  _direction = MScore::Direction(e.readInt());
-            else if (tag == "numberType")
-                  _numberType = e.readInt();
-            else if (tag == "bracketType")
-                  _bracketType = e.readInt();
-            else if (tag == "normalNotes")
-                  _ratio.setDenominator(e.readInt());
-            else if (tag == "actualNotes")
-                  _ratio.setNumerator(e.readInt());
-            else if (tag == "p1")
-                  _p1 = e.readPoint();
-            else if (tag == "p2")
-                  _p2 = e.readPoint();
-            else if (tag == "baseNote")
-                  _baseLen = TDuration(e.readElementText());
-            else if (tag == "Number") {
-                  _number = new Text(score());
-                  _number->setParent(this);
-                  _number->read(e);
-                  _number->setTextStyleType(TEXT_STYLE_TUPLET);
-                  _number->setVisible(visible());     //?? override saved property
-                  }
-            else if (tag == "subtype")    // obsolete
+            if (readProperties(e))
                   ;
-            else if (tag == "hasNumber")             // obsolete
-                  _numberType = e.readInt() ? SHOW_NUMBER : NO_TEXT;
-            else if (tag == "hasLine") {          // obsolete
-                  _hasBracket = e.readInt();
-                  _bracketType = AUTO_BRACKET;
-                  }
-            else if (tag == "baseLen")            // obsolete
-                  bl = e.readInt();
-            else if (!DurationElement::readProperties(e))
+            else
                   e.unknown();
             }
-      Fraction f(_ratio.denominator(), _baseLen.fraction().denominator());
-      setDuration(f);
-      if (bl != -1) {         // obsolete
-            TDuration d;
-            d.setVal(bl);
-            _baseLen = d;
-// qDebug("Tuplet base len %d/%d", d.fraction().numerator(), d.fraction().denominator());
-// qDebug("   %s  dots %d, %d/%d", qPrintable(d.name()), d.dots(), _ratio.numerator(), _ratio.denominator());
-            d.setVal(bl * _ratio.denominator());
-            setDuration(d.fraction());
+      Fraction f = _baseLen.fraction() * _ratio.denominator();
+      setTicks(f.reduced());
+      }
+
+//---------------------------------------------------------
+//   readProperties
+//---------------------------------------------------------
+
+bool Tuplet::readProperties(XmlReader& e)
+      {
+      const QStringRef& tag(e.name());
+
+      if (readStyledProperty(e, tag))
+            ;
+      else if (tag == "normalNotes")
+            _ratio.setDenominator(e.readInt());
+      else if (tag == "actualNotes")
+            _ratio.setNumerator(e.readInt());
+      else if (tag == "p1")
+            _p1 = e.readPoint() * score()->spatium();
+      else if (tag == "p2")
+            _p2 = e.readPoint() * score()->spatium();
+      else if (tag == "baseNote")
+            _baseLen = TDuration(e.readElementText());
+      else if (tag == "baseDots")
+            _baseLen.setDots(e.readInt());
+      else if (tag == "Number") {
+            _number = new Text(score(), Tid::TUPLET);
+            _number->setComposition(true);
+            _number->setParent(this);
+            resetNumberProperty();
+            _number->read(e);
+            _number->setVisible(visible());     //?? override saved property
+            _number->setTrack(track());
+            // move property flags from _number back to tuplet
+            for (auto p : { Pid::FONT_FACE, Pid::FONT_SIZE, Pid::FONT_STYLE, Pid::ALIGN })
+                  setPropertyFlags(p, _number->propertyFlags(p));
             }
+      else if (!DurationElement::readProperties(e))
+            return false;
+      return true;
       }
 
 //---------------------------------------------------------
@@ -586,40 +838,33 @@ void Tuplet::read(XmlReader& e)
 void Tuplet::add(Element* e)
       {
 #ifndef NDEBUG
-      foreach(DurationElement* el, _elements) {
+      for(DurationElement* el : _elements) {
             if (el == e) {
-                  qDebug("Tuplet::add: %p %s already there", e, e->name());
-                  abort();
+                  qDebug("%p: %p %s already there", this, e, e->name());
+                  return;
                   }
             }
 #endif
 
-      switch(e->type()) {
-            case TEXT:
-                  _number = static_cast<Text*>(e);
-                  break;
-            case CHORD:
-            case REST:
-            case TUPLET: {
+      switch (e->type()) {
+            case ElementType::CHORD:
+            case ElementType::REST:
+            case ElementType::TUPLET: {
                   bool found = false;
-                  DurationElement* de = static_cast<DurationElement*>(e);
-                  int tick = de->tick();
-                  if (tick != -1) {
-                        for (int i = 0; i < _elements.size(); ++i) {
-                              if (_elements[i]->tick() > tick) {
-                                    _elements.insert(i, de);
+                  DurationElement* de = toDurationElement(e);
+                  Fraction tick = de->rtick();
+                  if (tick != Fraction(-1,1)) {
+                        for (unsigned int i = 0; i < _elements.size(); ++i) {
+                              if (_elements[i]->rtick() > tick) {
+                                    _elements.insert(_elements.begin() + i, de);
                                     found = true;
                                     break;
                                     }
                               }
                         }
                   if (!found)
-                        _elements.append(de);
+                        _elements.push_back(de);
                   de->setTuplet(this);
-
-                  // the tick position of a tuplet is the tick position of its
-                  // first element:
-                  setTick(_elements.front()->tick());
                   }
                   break;
 
@@ -635,18 +880,22 @@ void Tuplet::add(Element* e)
 
 void Tuplet::remove(Element* e)
       {
-      switch(e->type()) {
-            case TEXT:
-                  if (e == _number)
-                        _number = 0;
-                  break;
-            case CHORD:
-            case REST:
-            case TUPLET:
-                  if (!_elements.removeOne(static_cast<DurationElement*>(e))) {
-                        qDebug("Tuplet::remove: cannot find element");
-                        qDebug("  elements %d", _elements.size());
+      switch (e->type()) {
+//            case ElementType::TEXT:
+//                  if (e == _number)
+//                        _number = 0;
+//                  break;
+            case ElementType::CHORD:
+            case ElementType::REST:
+            case ElementType::TUPLET: {
+                  auto i = std::find(_elements.begin(), _elements.end(), toDurationElement(e));
+                  if (i == _elements.end()) {
+                        qDebug("Tuplet::remove: cannot find element <%s>", e->name());
+                        qDebug("  elements %zu", _elements.size());
                         }
+                  else
+                        _elements.erase(i);
+                  }
                   break;
             default:
                   qDebug("Tuplet::remove: unknown element");
@@ -664,29 +913,40 @@ bool Tuplet::isEditable() const
       }
 
 //---------------------------------------------------------
+//   startEdit
+//---------------------------------------------------------
+
+void Tuplet::startEdit(EditData& ed)
+      {
+      Element::startEdit(ed);
+      ed.grips   = 2;
+      ed.curGrip = Grip::END;
+      }
+
+//---------------------------------------------------------
 //   editDrag
 //---------------------------------------------------------
 
-void Tuplet::editDrag(const EditData& ed)
+void Tuplet::editDrag(EditData& ed)
       {
-      if (ed.curGrip == 0)
+      if (ed.curGrip == Grip::START)
             _p1 += ed.delta;
       else
             _p2 += ed.delta;
       setGenerated(false);
-      layout();
-      score()->setUpdateAll(true);
+      //layout();
+      //score()->setUpdateAll();
+      triggerLayout();
       }
 
 //---------------------------------------------------------
 //   updateGrips
 //---------------------------------------------------------
 
-void Tuplet::updateGrips(int* grips, QRectF*grip) const
+void Tuplet::updateGrips(EditData& ed) const
       {
-      *grips = 2;
-      grip[0].translate(pagePos() + p1);
-      grip[1].translate(pagePos() + p2);
+      ed.grip[0].translate(pagePos() + p1);
+      ed.grip[1].translate(pagePos() + p2);
       }
 
 //---------------------------------------------------------
@@ -695,15 +955,9 @@ void Tuplet::updateGrips(int* grips, QRectF*grip) const
 
 void Tuplet::reset()
       {
-      score()->addRefresh(canvasBoundingRect());
-
-      undoChangeProperty(P_P1,        QPointF());
-      undoChangeProperty(P_P2,        QPointF());
-      undoChangeProperty(P_DIRECTION, propertyDefault(P_DIRECTION));
-
+      undoChangeProperty(Pid::P1, QPointF());
+      undoChangeProperty(Pid::P2, QPointF());
       Element::reset();
-      layout();
-      score()->addRefresh(canvasBoundingRect());
       }
 
 //---------------------------------------------------------
@@ -722,6 +976,10 @@ void Tuplet::dump() const
 
 void Tuplet::setTrack(int val)
       {
+      if (tuplet())
+            tuplet()->setTrack(val);
+      if (_number)
+            _number->setTrack(val);
       Element::setTrack(val);
       }
 
@@ -744,26 +1002,69 @@ void Tuplet::sortElements()
       }
 
 //---------------------------------------------------------
+//   cross
+//---------------------------------------------------------
+
+bool Tuplet::cross() const
+      {
+      for (DurationElement* de : _elements) {
+            if (!de) {
+                  continue;
+                  }
+            else if (de->isChordRest()) {
+                  if (toChordRest(de)->staffMove())
+                        return true;
+                  }
+            else if (de->isTuplet()) {
+                  if (toTuplet(de)->cross())
+                        return true;
+                  }
+            }
+      return false;
+      }
+
+//---------------------------------------------------------
+//   elementsDuration
+///  Get the sum of the element fraction in the tuplet,
+///  even if the tuplet is not complete yet
+//---------------------------------------------------------
+
+Fraction Tuplet::elementsDuration()
+      {
+      Fraction f;
+      for (DurationElement* el : _elements)
+            f += el->ticks();
+      return f;
+      }
+
+//---------------------------------------------------------
 //   getProperty
 //---------------------------------------------------------
 
-QVariant Tuplet::getProperty(P_ID propertyId) const
+QVariant Tuplet::getProperty(Pid propertyId) const
       {
-      switch(propertyId) {
-            case P_DIRECTION:
-                  return _direction;
-            case P_NUMBER_TYPE:
-                  return _numberType;
-            case P_BRACKET_TYPE:
-                  return _bracketType;
-            case P_NORMAL_NOTES:
+      switch (propertyId) {
+            case Pid::DIRECTION:
+                  return QVariant::fromValue<Direction>(_direction);
+            case Pid::NUMBER_TYPE:
+                  return int(_numberType);
+            case Pid::BRACKET_TYPE:
+                  return int(_bracketType);
+            case Pid::LINE_WIDTH:
+                  return _bracketWidth;
+            case Pid::NORMAL_NOTES:
                   return _ratio.denominator();
-            case P_ACTUAL_NOTES:
+            case Pid::ACTUAL_NOTES:
                   return _ratio.numerator();
-            case P_P1:
+            case Pid::P1:
                   return _p1;
-            case P_P2:
+            case Pid::P2:
                   return _p2;
+            case Pid::FONT_SIZE:
+            case Pid::FONT_FACE:
+            case Pid::FONT_STYLE:
+            case Pid::ALIGN:
+                  return _number ? _number->getProperty(propertyId) : QVariant();
             default:
                   break;
             }
@@ -774,36 +1075,47 @@ QVariant Tuplet::getProperty(P_ID propertyId) const
 //   setProperty
 //---------------------------------------------------------
 
-bool Tuplet::setProperty(P_ID propertyId, const QVariant& v)
+bool Tuplet::setProperty(Pid propertyId, const QVariant& v)
       {
-      score()->addRefresh(canvasBoundingRect());
-      switch(propertyId) {
-            case P_DIRECTION:
-                  setDirection(MScore::Direction(v.toInt()));
+      switch (propertyId) {
+            case Pid::DIRECTION:
+                  setDirection(v.value<Direction>());
                   break;
-            case P_NUMBER_TYPE:
-                  setNumberType(v.toInt());
+            case Pid::NUMBER_TYPE:
+                  setNumberType(TupletNumberType(v.toInt()));
                   break;
-            case P_BRACKET_TYPE:
-                  setBracketType(v.toInt());
+            case Pid::BRACKET_TYPE:
+                  setBracketType(TupletBracketType(v.toInt()));
                   break;
-            case P_NORMAL_NOTES:
+            case Pid::LINE_WIDTH:
+                  setBracketWidth(v.value<Spatium>());
+                  break;
+            case Pid::NORMAL_NOTES:
                   _ratio.setDenominator(v.toInt());
                   break;
-            case P_ACTUAL_NOTES:
+            case Pid::ACTUAL_NOTES:
                   _ratio.setNumerator(v.toInt());
                   break;
-            case P_P1:
+            case Pid::P1:
                   _p1 = v.toPointF();
                   break;
-            case P_P2:
+            case Pid::P2:
                   _p2 = v.toPointF();
+                  break;
+            case Pid::FONT_SIZE:
+            case Pid::FONT_FACE:
+            case Pid::FONT_STYLE:
+            case Pid::ALIGN:
+                  if (_number)
+                        _number->setProperty(propertyId, v);
                   break;
             default:
                   return DurationElement::setProperty(propertyId, v);
-                  break;
             }
-      score()->setLayoutAll(true);
+      if (!_elements.empty()) {
+            _elements.front()->triggerLayout();
+            _elements.back()->triggerLayout();
+            }
       return true;
       }
 
@@ -811,23 +1123,182 @@ bool Tuplet::setProperty(P_ID propertyId, const QVariant& v)
 //   propertyDefault
 //---------------------------------------------------------
 
-QVariant Tuplet::propertyDefault(P_ID id) const
+QVariant Tuplet::propertyDefault(Pid id) const
       {
       switch(id) {
-            case P_DIRECTION:
-                  return MScore::AUTO;
-            case P_NUMBER_TYPE:
-                  return Tuplet::SHOW_NUMBER;
-            case P_BRACKET_TYPE:
-                  return Tuplet::AUTO_BRACKET;
-            case P_NORMAL_NOTES:
-            case P_ACTUAL_NOTES:
-                  return 1;
-            case P_P1:
-            case P_P2:
+            case Pid::SUB_STYLE:
+                  return int(Tid::TUPLET);
+            case Pid::SYSTEM_FLAG:
+                  return false;
+            case Pid::TEXT:
+                  return QString("");
+            case Pid::NORMAL_NOTES:
+            case Pid::ACTUAL_NOTES:
+                  return 0;
+            case Pid::P1:
+            case Pid::P2:
                   return QPointF();
+            case Pid::ALIGN:
+                  return score()->styleV(Sid::tupletAlign);
+            case Pid::FONT_FACE:
+                  return score()->styleV(Sid::tupletFontFace);
+            case Pid::FONT_SIZE:
+                  return score()->styleV(Sid::tupletFontSize);
+            case Pid::FONT_STYLE:
+                  return score()->styleV(Sid::tupletFontStyle);
             default:
+                  {
+                  QVariant v = ScoreElement::propertyDefault(id, Tid::DEFAULT);
+                  if (v.isValid())
+                        return v;
+                  }
                   return DurationElement::propertyDefault(id);
             }
       }
+
+//---------------------------------------------------------
+//   sanitizeTuplet
+///    Check validity of tuplets and coherence between duration
+///    and baselength. Needed for importing old files due to a bug
+///    in the released version for corner-case tuplets.
+///    See issue #136406 and Pull request #2881
+//---------------------------------------------------------
+
+void Tuplet::sanitizeTuplet()
+      {
+      if (ratio().numerator() == ratio().reduced().numerator()) // return if the ratio is an irreducible fraction
+            return;
+      Fraction baseLenDuration = (Fraction(ratio().denominator(),1) * baseLen().fraction()).reduced();
+
+      // Due to a bug present in 2.1 (and before), a tuplet with non-reduced ratio could be
+      // in a corrupted state (mismatch between duration and base length).
+      // A tentative will now be made to retrieve the correct duration by summing up all the
+      // durations of the elements constituting the tuplet. This does not work for
+      // not-completely filled tuplets, such as tuplets in voices > 0 with
+      // gaps (for example, a tuplet in second voice with a deleted chordrest element)
+
+      Fraction testDuration(0,1);
+      for (DurationElement* de : elements()) {
+            if (de == 0)
+                  continue;
+            Fraction elementDuration(0,1);
+            if (de->isTuplet()){
+                  Tuplet* t = toTuplet(de);
+                  t->sanitizeTuplet();
+                  elementDuration = t->ticks();
+                  }
+            else {
+                  elementDuration = de->ticks();
+                  }
+            testDuration += elementDuration;
+            }
+      testDuration = testDuration / ratio();
+      testDuration.reduce();
+      if (elements().back()->tick() + elements().back()->actualTicks() - elements().front()->tick() > testDuration)
+            return;     // this tuplet has missing elements; do not sanitize
+      if (!(testDuration == baseLenDuration && baseLenDuration == ticks())) {
+            Fraction f = testDuration * Fraction(1, ratio().denominator());
+            f.reduce();
+            Fraction fbl(1, f.denominator());
+            if (TDuration::isValid(fbl)) {
+                  setTicks(testDuration);
+                  setBaseLen(fbl);
+                  qDebug("Tuplet %p sanitized duration %d/%d   baseLen %d/%d",this,
+                        testDuration.numerator(), testDuration.denominator(),
+                        1, fbl.denominator());
+                  }
+            else {
+                  qDebug("Impossible to sanitize the tuplet");
+                  }
+            }
+      }
+
+//---------------------------------------------------------
+//   addMissingElement
+//     Add a rest with the given start and end ticks.
+//     Should only be called from Tuplet::addMissingElements().
+//     Needed for importing files that saved incomplete tuplets.
+//---------------------------------------------------------
+
+Fraction Tuplet::addMissingElement(const Fraction& startTick, const Fraction& endTick)
+      {
+      Fraction f = (endTick - startTick) * ratio();
+      TDuration d = TDuration(f, true);
+      if (!d.isValid()) {
+            qDebug("Tuplet::addMissingElement(): invalid duration: %d/%d", f.numerator(), f.denominator());
+            return Fraction::fromTicks(0);
+            }
+      f = d.fraction();
+      Rest* rest = new Rest(score());
+      rest->setDurationType(d);
+      rest->setTicks(f);
+      rest->setTrack(track());
+      rest->setVisible(false);
+      Segment* segment = measure()->getSegment(SegmentType::ChordRest, startTick);
+      segment->add(rest);
+      add(rest);
+      return f;
+      }
+
+//---------------------------------------------------------
+//   addMissingElements
+//     Make this tuplet complete by filling in holes where
+//     there ought to be rests. Needed for importing files
+//     that saved incomplete tuplets.
+//---------------------------------------------------------
+
+void Tuplet::addMissingElements()
+      {
+      if (tuplet())
+            return;     // do not correct nested tuplets
+      if (voice() == 0)
+            return;     // nothing to do for tuplets in voice 1
+      Fraction missingElementsDuration = ticks() * ratio() - elementsDuration();
+      if (missingElementsDuration.isZero())
+            return;
+      // first, fill in any holes in the middle of the tuplet
+      Fraction expectedTick = elements().front()->tick();
+      for (DurationElement* de : elements()) {
+            if (de->tick() != expectedTick) {
+                  missingElementsDuration -= addMissingElement(expectedTick, de->tick());
+                  if (missingElementsDuration.isZero())
+                        return;
+                  }
+            expectedTick += de->actualTicks();
+            }
+      // calculate the tick where we would expect a tuplet of this duration to start
+      // TODO: check:
+      expectedTick = elements().front()->tick() - Fraction::fromTicks(elements().front()->tick().ticks() % ticks().ticks());
+      if (expectedTick != elements().front()->tick()) {
+            // try to fill a hole at the beginning of the tuplet
+            Fraction firstAvailableTick = measure()->tick();
+            Segment* segment = measure()->findSegment(SegmentType::ChordRest, elements().front()->tick());
+            ChordRest* prevChordRest = segment && segment->prev() ? segment->prev()->nextChordRest(track(), true) : nullptr;
+            if (prevChordRest && prevChordRest->measure() == measure())
+                  firstAvailableTick = prevChordRest->tick() + prevChordRest->actualTicks();
+            if (firstAvailableTick != elements().front()->tick()) {
+                  Fraction f = missingElementsDuration / ratio();
+                  Fraction ticksRequired = f;
+                  Fraction endTick = elements().front()->tick();
+                  Fraction startTick = max(firstAvailableTick, endTick - ticksRequired);
+                  if (expectedTick > startTick)
+                        startTick = expectedTick;
+                  missingElementsDuration -= addMissingElement(startTick, endTick);
+                  if (missingElementsDuration.isZero())
+                        return;
+                  }
+            }
+      // now fill a hole at the end of the tuplet
+      Fraction startTick = elements().back()->tick() + elements().back()->actualTicks();
+      Fraction endTick = elements().front()->tick() + ticks();
+      // just to be safe, find the next ChordRest in the track, and adjust endTick if necessary
+      Segment* segment = measure()->findSegment(SegmentType::ChordRest, elements().back()->tick());
+      ChordRest* nextChordRest = segment && segment->next() ? segment->next()->nextChordRest(track(), false) : nullptr;
+      if (nextChordRest && nextChordRest->tick() < endTick)
+            endTick = nextChordRest->tick();
+      missingElementsDuration -= addMissingElement(startTick, endTick);
+      if (!missingElementsDuration.isZero())
+            qDebug("Tuplet::addMissingElements(): still missing duration of %d/%d", missingElementsDuration.numerator(), missingElementsDuration.denominator());
+      }
+}  // namespace Ms
 

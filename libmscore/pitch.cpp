@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -12,6 +11,8 @@
 //=============================================================================
 
 #include "pitch.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   PitchList
@@ -28,3 +29,6 @@ int PitchList::pitchOffset(int tick) const
       --i;
       return i.value();
       }
+
+}
+

@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: glissando.h 5500 2012-03-28 16:28:26Z wschweer $
 //
 //  Copyright (C) 2008-2011 Werner Schweer
 //
@@ -15,44 +14,73 @@
 #define __GLISSANDO_H__
 
 #include "element.h"
+#include "line.h"
+#include "property.h"
 
-#define GLISS_STRAIGHT  0
-#define GLISS_WAVY      1
+namespace Ms {
 
+// the amount of white space to leave before a system-initial chord with glissando
+static const qreal      GLISS_STARTOFSYSTEM_WIDTH = 4;      // in sp
+
+class Glissando;
 class Note;
+enum class GlissandoType;
 
 //---------------------------------------------------------
-//   @@ Glissando
+//   @@ GlissandoSegment
 //---------------------------------------------------------
 
-class Glissando : public Element {
-      Q_OBJECT
+class GlissandoSegment final : public LineSegment {
+   public:
+      GlissandoSegment(Spanner* sp, Score* s) : LineSegment(sp, s) {}
+      Glissando* glissando() const                          { return toGlissando(spanner()); }
+      virtual ElementType type() const override             { return ElementType::GLISSANDO_SEGMENT; }
+      virtual GlissandoSegment* clone() const override      { return new GlissandoSegment(*this); }
+      virtual void draw(QPainter*) const override;
+      virtual void layout() override;
 
-      int _subtype;
-      QLineF line;
-      QString _text;
-      bool _showText;
+      virtual Element* propertyDelegate(Pid) override;
+      };
+
+//---------------------------------------------------------
+//   Glissando
+//---------------------------------------------------------
+
+class Glissando final : public SLine {
+      M_PROPERTY(QString, text, setText)
+      M_PROPERTY(GlissandoType, glissandoType, setGlissandoType)
+      M_PROPERTY(GlissandoStyle, glissandoStyle, setGlissandoStyle)
+      M_PROPERTY(QString, fontFace, setFontFace)
+      M_PROPERTY(qreal, fontSize, setFontSize)
+      M_PROPERTY(bool, showText, setShowText)
+      M_PROPERTY(bool, playGlissando, setPlayGlissando)
+      M_PROPERTY(FontStyle, fontStyle, setFontStyle)
 
    public:
       Glissando(Score* s);
-      virtual Glissando* clone() const { return new Glissando(*this); }
-      virtual ElementType type() const { return GLISSANDO; }
-      int subtype() const    { return _subtype; }
-      void setSubtype(int v) { _subtype = v;    }
-      virtual Space space() const;
+      Glissando(const Glissando&);
 
-      virtual void draw(QPainter*) const;
-      virtual void layout();
-      virtual void write(Xml&) const;
-      virtual void read(XmlReader&);
+      static Note* guessInitialNote(Chord* chord);
+      static Note* guessFinalNote(Chord* chord);
 
-      void setSize(const QSizeF&);        // used for palette
+      // overridden inherited methods
+      virtual Glissando* clone() const override     { return new Glissando(*this);   }
+      virtual ElementType type() const override     { return ElementType::GLISSANDO; }
+      virtual LineSegment* createLineSegment() override;
+      virtual void scanElements(void* data, void (*func)(void*, Element*), bool all=true) override;
+      virtual void layout() override;
+      virtual void write(XmlWriter&) const override;
+      virtual void read(XmlReader&) override;
 
-      QString text() const           { return _text;     }
-      void setText(const QString& t) { _text = t;        }
-      bool showText() const          { return _showText; }
-      void setShowText(bool v)       { _showText = v;    }
+      // property/style methods
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool     setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid) const override;
+      virtual Pid propertyId(const QStringRef& xmlName) const override;
       };
+
+
+}     // namespace Ms
 
 #endif
 

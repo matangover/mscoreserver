@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: box.h 5500 2012-03-28 16:28:26Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -20,11 +19,11 @@
 */
 
 #include "measurebase.h"
+#include "property.h"
 
-class BarLine;
+namespace Ms {
+
 class MuseScoreView;
-class Text;
-class QPainter;
 
 //---------------------------------------------------------
 //   @@ Box
@@ -32,35 +31,40 @@ class QPainter;
 //---------------------------------------------------------
 
 class Box : public MeasureBase {
-      Q_OBJECT
-
-      Spatium _boxWidth;   // only valid for HBox
-      Spatium _boxHeight;  // only valid for VBox
-      qreal _topGap;       // distance from previous system (left border for hbox)
-                           // initialized with ST_systemFrameDistance
-      qreal _bottomGap;    // distance to next system (right border for hbox)
-                           // initialized with ST_frameSystemDistance
-      qreal _leftMargin, _rightMargin;   // inner margins in metric mm
-      qreal _topMargin, _bottomMargin;
-      bool editMode;
-      qreal dragX;            // used during drag of hbox
+      Spatium _boxWidth             { Spatium(0) };  // only valid for HBox
+      Spatium _boxHeight            { Spatium(0) };  // only valid for VBox
+      qreal _topGap                 { 0.0   };       // distance from previous system (left border for hbox)
+                                                     // initialized with Sid::systemFrameDistance
+      qreal _bottomGap              { 0.0   };       // distance to next system (right border for hbox)
+                                                     // initialized with Sid::frameSystemDistance
+      qreal _leftMargin             { 0.0   };
+      qreal _rightMargin            { 0.0   };       // inner margins in metric mm
+      qreal _topMargin              { 0.0   };
+      qreal _bottomMargin           { 0.0   };
+      bool editMode                 { false };
+      qreal dragX;                        // used during drag of hbox
 
    public:
       Box(Score*);
-      virtual void draw(QPainter*) const;
-      virtual bool isEditable() const { return true; }
-      virtual void startEdit(MuseScoreView*, const QPointF&);
-      virtual bool edit(MuseScoreView*, int grip, int key, Qt::KeyboardModifiers, const QString& s);
-      virtual void editDrag(const EditData&);
-      virtual void endEdit();
-      virtual void updateGrips(int* grips, QRectF*) const;
-      virtual void layout();
-      virtual void write(Xml&) const;
-      virtual void write(Xml& xml, int, bool) const { write(xml); }
-      virtual void read(XmlReader&);
-      virtual bool acceptDrop(MuseScoreView*, const QPointF&, Element*) const;
-      virtual Element* drop(const DropData&);
-      virtual void add(Element* e);
+      virtual void draw(QPainter*) const override;
+      virtual bool isEditable() const override { return true; }
+
+      virtual void startEdit(EditData&) override;
+      virtual bool edit(EditData&) override;
+      virtual void startEditDrag(EditData&) override;
+      virtual void editDrag(EditData&) override;
+      virtual void endEdit(EditData&) override;
+
+      virtual void updateGrips(EditData&) const override;
+      virtual void layout() override;
+      virtual void write(XmlWriter&) const override;
+      virtual void write(XmlWriter& xml, int, bool, bool) const override { write(xml); }
+      virtual void writeProperties(XmlWriter&) const override;
+      virtual bool readProperties(XmlReader&) override;
+      virtual void read(XmlReader&) override;
+      virtual bool acceptDrop(EditData&) const override;
+      virtual Element* drop(EditData&) override;
+      virtual void add(Element* e) override;
 
       Spatium boxWidth() const        { return _boxWidth;     }
       void setBoxWidth(Spatium val)   { _boxWidth = val;      }
@@ -78,52 +82,59 @@ class Box : public MeasureBase {
       void setTopGap(qreal val)       { _topGap = val;        }
       qreal bottomGap() const         { return _bottomGap;    }
       void setBottomGap(qreal val)    { _bottomGap = val;     }
+      void copyValues(Box* origin);
 
-      virtual QVariant getProperty(P_ID propertyId) const;
-      virtual bool setProperty(P_ID propertyId, const QVariant&);
-      virtual QVariant propertyDefault(P_ID) const;
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid) const override;
       };
 
 //---------------------------------------------------------
 //   @@ HBox
-///   horizontal frame
+///    horizontal frame
 //---------------------------------------------------------
 
-class HBox : public Box {
-      Q_OBJECT
+class HBox final : public Box {
+      bool _createSystemHeader { true };
 
    public:
       HBox(Score* score);
-      ~HBox() {}
-      virtual HBox* clone() const      { return new HBox(*this); }
-      virtual ElementType type() const { return HBOX;       }
+      virtual ~HBox() {}
+      virtual HBox* clone() const override        { return new HBox(*this); }
+      virtual ElementType type() const override { return ElementType::HBOX;       }
 
-      virtual void layout();
+      virtual void layout() override;
+      virtual void writeProperties(XmlWriter&) const override;
+      virtual bool readProperties(XmlReader&) override;
 
-      virtual QRectF drag(const EditData& s);
-      virtual void endEditDrag();
+      virtual QRectF drag(EditData&) override;
+      virtual void endEditDrag(EditData&) override;
       void layout2();
-      virtual bool isMovable() const;
+      virtual bool isMovable() const override;
+      virtual void computeMinWidth();
+
+      bool createSystemHeader() const      { return _createSystemHeader; }
+      void setCreateSystemHeader(bool val) { _createSystemHeader = val;  }
+
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid) const override;
       };
 
 //---------------------------------------------------------
 //   @@ VBox
-///   vertical frame
+///    vertical frame
 //---------------------------------------------------------
 
 class VBox : public Box {
-      Q_OBJECT
-
    public:
       VBox(Score* score);
-      ~VBox() {}
-      virtual VBox* clone() const      { return new VBox(*this); }
-      virtual ElementType type() const { return VBOX;       }
+      virtual ~VBox() {}
+      virtual VBox* clone() const override        { return new VBox(*this);           }
+      virtual ElementType type() const override { return ElementType::VBOX;       }
 
-      virtual void layout();
+      virtual void layout() override;
 
-      virtual QPointF getGrip(int) const;
-      virtual void setGrip(int, const QPointF&);
       };
 
 //---------------------------------------------------------
@@ -132,17 +143,17 @@ class VBox : public Box {
 //---------------------------------------------------------
 
 class FBox : public VBox {
-      Q_OBJECT
-
    public:
       FBox(Score* score) : VBox(score) {}
-      ~FBox() {}
-      virtual FBox* clone() const      { return new FBox(*this); }
-      virtual ElementType type() const { return FBOX;       }
+      virtual ~FBox() {}
+      virtual FBox* clone() const override        { return new FBox(*this); }
+      virtual ElementType type() const override { return ElementType::FBOX;       }
 
-      virtual void layout();
-      void add(Element*);
+      virtual void layout() override;
+      virtual void add(Element*) override;
       };
 
+
+}     // namespace Ms
 #endif
 

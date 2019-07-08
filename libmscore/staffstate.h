@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -15,49 +14,54 @@
 #define __STAFFSTATE_H__
 
 #include "element.h"
-#include "elementlayout.h"
 #include "instrument.h"
 
-class QPainter;
+namespace Ms {
 
-enum StaffStateType {
-      STAFF_STATE_INSTRUMENT, STAFF_STATE_TYPE,
-      STAFF_STATE_VISIBLE, STAFF_STATE_INVISIBLE
+enum class StaffStateType : char {
+      INSTRUMENT,
+      TYPE,
+      VISIBLE,
+      INVISIBLE
       };
 
 //---------------------------------------------------------
 //   @@ StaffState
 //---------------------------------------------------------
 
-class StaffState : public Element {
-      Q_OBJECT
-
-      StaffStateType _subtype;
+class StaffState final : public Element {
+      StaffStateType _staffStateType;
       qreal lw;
       QPainterPath path;
 
-      Instrument _instrument;
+      Instrument* _instrument;
 
       virtual void draw(QPainter*) const;
       virtual void layout();
 
    public:
       StaffState(Score*);
-      virtual StaffState* clone() const { return new StaffState(*this); }
-      virtual ElementType type() const   { return STAFF_STATE; }
+      StaffState(const StaffState&);
+      ~StaffState();
 
-      void setSubtype(const QString&);
-      void setSubtype(StaffStateType st)    { _subtype = st; }
-      StaffStateType subtype() const        { return _subtype; }
-      QString subtypeName() const;
+      virtual StaffState* clone() const  { return new StaffState(*this); }
+      virtual ElementType type() const   { return ElementType::STAFF_STATE; }
 
-      virtual bool acceptDrop(MuseScoreView*, const QPointF&, Element*) const;
-      virtual Element* drop(const DropData&);
-      virtual void write(Xml&) const;
+      void setStaffStateType(const QString&);
+      void setStaffStateType(StaffStateType st) { _staffStateType = st; }
+      StaffStateType staffStateType() const     { return _staffStateType; }
+      QString staffStateTypeName() const;
+
+      virtual bool acceptDrop(EditData&) const override;
+      virtual Element* drop(EditData&);
+      virtual void write(XmlWriter&) const;
       virtual void read(XmlReader&);
-      Instrument instrument() const           { return _instrument; }
-      void setInstrument(const Instrument& i) { _instrument = i;    }
-      Segment* segment()                      { return (Segment*)parent(); }
+      Instrument* instrument() const           { return _instrument; }
+      void setInstrument(const Instrument* i)  { *_instrument = *i;    }
+      void setInstrument(const Instrument&& i) { *_instrument = i;    }
+      Segment* segment()                       { return (Segment*)parent(); }
       };
 
+
+}     // namespace Ms
 #endif

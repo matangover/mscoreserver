@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: hook.h 5362 2012-02-23 14:03:36Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -16,26 +15,30 @@
 
 #include "symbol.h"
 
+namespace Ms {
+
 class Chord;
 
 //---------------------------------------------------------
 //   @@ Hook
 //---------------------------------------------------------
 
-class Hook : public Symbol {
-      Q_OBJECT
-
-      int _subtype;
+class Hook final : public Symbol {
+      int _hookType;
 
    public:
-      Hook(Score*);
-      virtual Hook* clone() const      { return new Hook(*this); }
-      virtual ElementType type() const { return HOOK; }
-      void setSubtype(int v);
-      int subtype() const { return _subtype; }
-      virtual void layout();
-      Chord* chord() const            { return (Chord*)parent(); }
+      Hook(Score* = 0);
+      virtual Hook* clone() const override        { return new Hook(*this); }
+      virtual qreal mag() const override          { return parent()->mag(); }
+      virtual ElementType type() const override   { return ElementType::HOOK; }
+      void setHookType(int v);
+      int hookType() const                        { return _hookType; }
+      virtual void layout() override;
+      virtual void draw(QPainter*) const override;
+      Chord* chord() const                         { return (Chord*)parent(); }
       };
 
+
+}     // namespace Ms
 #endif
 

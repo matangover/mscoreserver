@@ -1,7 +1,6 @@
-//=============================================================================
+ //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: symbol.cpp 5313 2012-02-13 08:39:50Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -21,38 +20,32 @@
 #include "score.h"
 #include "image.h"
 
+namespace Ms {
+
 //---------------------------------------------------------
 //   Symbol
 //---------------------------------------------------------
 
-Symbol::Symbol(Score* s)
-   : BSymbol(s)
+Symbol::Symbol(Score* s, ElementFlags f)
+   : BSymbol(s, f)
       {
-      _sym = sharpSym;        // arbitrary valid default
-      setZ(SYMBOL * 100);
-      }
-
-Symbol::Symbol(Score* s, SymId sy)
-   : BSymbol(s)
-      {
-      _sym = sy;
-      setZ(SYMBOL * 100);
+      _sym = SymId::accidentalSharp;        // arbitrary valid default
       }
 
 Symbol::Symbol(const Symbol& s)
    : BSymbol(s)
       {
-      _sym   = s._sym;
-      setZ(SYMBOL * 100);
+      _sym       = s._sym;
+      _scoreFont = s._scoreFont;
       }
 
 //---------------------------------------------------------
-//   setAbove
+//   symName
 //---------------------------------------------------------
 
-void Symbol::setAbove(bool val)
+QString Symbol::symName() const
       {
-      setYoff(val ? -2.0 : 7.0);
+      return Sym::id2name(_sym);
       }
 
 //---------------------------------------------------------
@@ -63,15 +56,24 @@ void Symbol::setAbove(bool val)
 
 void Symbol::layout()
       {
-//      qreal m = parent() ? parent()->mag() : 1.0;
-//      if (_small)
-//            m *= score()->styleD(ST_smallNoteMag);
-//      setMag(m);
-      foreach(Element* e, leafs())
-            e->layout();
-      ElementLayout::layout(this);
+      // foreach(Element* e, leafs())     done in BSymbol::layout() ?
+      //      e->layout();
+      setbbox(_scoreFont ? _scoreFont->bbox(_sym, magS()) : symBbox(_sym));
+      QPointF o(offset());
+      qreal w = width();
+      QPointF p;
+      if (align() & Align::BOTTOM)
+            p.setY(- height());
+      else if (align() & Align::VCENTER)
+            p.setY((- height()) * .5);
+      else if (align() & Align::BASELINE)
+            p.setY(-baseLine());
+      if (align() & Align::RIGHT)
+            p.setX(-w);
+      else if (align() & Align::HCENTER)
+            p.setX(-(w * .5));
+      setPos(p);
       BSymbol::layout();
-      setbbox(symbols[score()->symIdx()][_sym].bbox(magS()));
       }
 
 //---------------------------------------------------------
@@ -80,9 +82,12 @@ void Symbol::layout()
 
 void Symbol::draw(QPainter* p) const
       {
-      if (type() != NOTEDOT || !staff()->isTabStaff()) {
+      if (!isNoteDot() || !staff()->isTabStaff(tick())) {
             p->setPen(curColor());
-            symbols[score()->symIdx()][_sym].draw(p, magS());
+            if (_scoreFont)
+                  _scoreFont->draw(_sym, p, magS(), QPointF());
+            else
+                  drawSymbol(_sym, p);
             }
       }
 
@@ -90,10 +95,12 @@ void Symbol::draw(QPainter* p) const
 //   Symbol::write
 //---------------------------------------------------------
 
-void Symbol::write(Xml& xml) const
+void Symbol::write(XmlWriter& xml) const
       {
-      xml.stag(name());
+      xml.stag(this);
       xml.tag("name", Sym::id2name(_sym));
+      if (_scoreFont)
+            xml.tag("font", _scoreFont->name());
       BSymbol::writeProperties(xml);
       xml.etag();
       }
@@ -105,110 +112,78 @@ void Symbol::write(Xml& xml) const
 void Symbol::read(XmlReader& e)
       {
       QPointF pos;
-      SymId s = noSym;
-
       while (e.readNextStartElement()) {
             const QStringRef& tag(e.name());
             if (tag == "name") {
                   QString val(e.readElementText());
-                  if (val == "acc dot")               // compatibility hack
-                        val = "accordion.accDot";
-                  else if (val == "acc old ee")
-                        val = "accordion.accOldEE";
-                  s = Sym::name2id(val);
-                  if (s == noSym) {
-                        // if symbol name not found, fall back to mnames
-                        s = Sym::userName2id(val);
-                        if (s == noSym) {
-                              qDebug("unknown symbol <%s> (%d symbols), falling back to default symbol",
-                                 qPrintable(val), symbols[0].size());
-                              // set a default symbol, or layout() will crash
-                              s = s1miHeadSym;
+                  SymId symId = Sym::name2id(val);
+                  if (val != "noSym") {
+                        if (symId == SymId::noSym) {
+                              // if symbol name not found, fall back to user names
+                              // TODO : does it make sense? user names are probably localized
+                              symId = Sym::userName2id(val);
+                              if (symId == SymId::noSym) {
+                                    qDebug("unknown symbol <%s>, falling back to no symbol", qPrintable(val));
+                                    // set a default symbol, or layout() will crash
+                                    symId = SymId::noSym;
+                                    }
                               }
                         }
+                  setSym(symId);
                   }
+            else if (tag == "font")
+                  _scoreFont = ScoreFont::fontFactory(e.readElementText());
             else if (tag == "Symbol") {
                   Symbol* s = new Symbol(score());
                   s->read(e);
-                  s->adjustReadPos();
                   add(s);
                   }
             else if (tag == "Image") {
-                  Image* image = new Image(score());
-                  QString path;
-                  image->read(e);
-                  add(image);
+                  if (MScore::noImages)
+                        e.skipCurrentElement();
+                  else {
+                        Image* image = new Image(score());
+                        image->read(e);
+                        add(image);
+                        }
                   }
-            else if (tag == "small" || tag == "subtype")
-                  ;
+            else if (tag == "small" || tag == "subtype")    // obsolete
+                  e.skipCurrentElement();
             else if (!BSymbol::readProperties(e))
                   e.unknown();
             }
-      if (s == noSym)
-            qDebug("unknown symbol");
       setPos(pos);
-      setSym(s);
       }
 
 //---------------------------------------------------------
-//   dragAnchor
+//   Symbol::getProperty
 //---------------------------------------------------------
 
-QLineF BSymbol::dragAnchor() const
+QVariant Symbol::getProperty(Pid propertyId) const
       {
-      if (parent() && parent()->type() == SEGMENT) {
-            System* system = segment()->measure()->system();
-            qreal y        = system->staff(staffIdx())->y() + system->y();
-            QPointF anchor(segment()->pageX(), y);
-            return QLineF(canvasPos(), anchor);
+      switch (propertyId) {
+            case Pid::SYMBOL:
+                  return QVariant::fromValue(_sym);
+            default:
+                  break;
             }
-      else {
-            return QLineF(canvasPos(), parent()->canvasPos());
-            }
+      return BSymbol::getProperty(propertyId);
       }
 
 //---------------------------------------------------------
-//   pagePos
+//   Symbol::setProperty
 //---------------------------------------------------------
 
-QPointF BSymbol::pagePos() const
+bool Symbol::setProperty(Pid propertyId, const QVariant& v)
       {
-      if (parent() && (parent()->type() == SEGMENT)) {
-            QPointF p(pos());
-            System* system = segment()->measure()->system();
-            if (system) {
-                  p.ry() += system->staff(staffIdx())->y() + system->y();
-                  }
-            p.rx() = pageX();
-            return p;
+      switch (propertyId) {
+            case Pid::SYMBOL:
+                  _sym = v.value<SymId>();
+                  break;
+            default:
+                  break;
             }
-      else
-            return Element::pagePos();
-      }
-
-//---------------------------------------------------------
-//   canvasPos
-//---------------------------------------------------------
-
-QPointF BSymbol::canvasPos() const
-      {
-      if (parent() && (parent()->type() == SEGMENT)) {
-            QPointF p(pos());
-            Segment* s = static_cast<Segment*>(parent());
-
-            System* system = s->measure()->system();
-            if (system) {
-                  int si = staffIdx();
-                  p.ry() += system->staff(si)->y() + system->y();
-                  Page* page = system->page();
-                  if (page)
-                        p.ry() += page->y();
-                  }
-            p.rx() = canvasX();
-            return p;
-            }
-      else
-            return Element::canvasPos();
+      return BSymbol::setProperty(propertyId, v);
       }
 
 //---------------------------------------------------------
@@ -236,13 +211,16 @@ FSymbol::FSymbol(const FSymbol& s)
 void FSymbol::draw(QPainter* painter) const
       {
       QString s;
-      painter->setFont(_font);
+      QFont f(_font);
+      f.setPointSizeF(f.pointSizeF() * MScore::pixelRatio);
+      painter->setFont(f);
       if (_code & 0xffff0000) {
             s = QChar(QChar::highSurrogate(_code));
             s += QChar(QChar::lowSurrogate(_code));
             }
       else
             s = QChar(_code);
+      painter->setPen(curColor());
       painter->drawText(QPointF(0, 0), s);
       }
 
@@ -250,11 +228,11 @@ void FSymbol::draw(QPainter* painter) const
 //   write
 //---------------------------------------------------------
 
-void FSymbol::write(Xml& xml) const
+void FSymbol::write(XmlWriter& xml) const
       {
-      xml.stag(name());
+      xml.stag(this);
       xml.tag("font",     _font.family());
-      xml.tag("fontsize", _font.pixelSize());
+      xml.tag("fontsize", _font.pointSizeF());
       xml.tag("code",     _code);
       BSymbol::writeProperties(xml);
       xml.etag();
@@ -271,7 +249,7 @@ void FSymbol::read(XmlReader& e)
             if (tag == "font")
                   _font.setFamily(e.readElementText());
             else if (tag == "fontsize")
-                  _font.setPixelSize(e.readInt());
+                  _font.setPointSizeF(e.readDouble());
             else if (tag == "code")
                   _code = e.readInt();
             else if (!BSymbol::readProperties(e))
@@ -293,9 +271,8 @@ void FSymbol::layout()
             }
       else
             s = QChar(_code);
-      QFontMetricsF fm(_font);
+      QFontMetricsF fm(_font, MScore::paintDevice());
       setbbox(fm.boundingRect(s));
-      adjustReadPos();
       }
 
 //---------------------------------------------------------
@@ -307,4 +284,6 @@ void FSymbol::setFont(const QFont& f)
       _font = f;
       _font.setStyleStrategy(QFont::NoFontMerging);
       }
+
+}
 

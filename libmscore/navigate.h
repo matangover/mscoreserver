@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: navigate.h 5591 2012-04-28 19:46:22Z lasconic $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -14,11 +13,15 @@
 #ifndef __NAVIGATE_H__
 #define __NAVIGATE_H__
 
+namespace Ms {
+
 class ChordRest;
 
 extern int pitch2y(int pitch, int enh, int clefOffset, int key, int& prefix, const char* tversatz);
-extern ChordRest* nextChordRest(ChordRest* cr, bool skipGrace = true);
-extern ChordRest* prevChordRest(ChordRest* cr, bool skipGrace = true);
+extern ChordRest* nextChordRest(ChordRest* cr, bool skipGrace = false);
+extern ChordRest* prevChordRest(ChordRest* cr, bool skipGrace = false);
 
+
+}     // namespace Ms
 #endif
 

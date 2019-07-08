@@ -16,6 +16,7 @@
 #include "libmscore/page.h"
 
 #include "mscorecontroller.h"
+using namespace Ms;
 
 MScoreController::MScoreController(QObject* parent)
       {
@@ -32,6 +33,7 @@ MScoreController::~MScoreController()
 static void processPng(HttpResponse& response, Score* score)
       {
       qreal convDpi = 100.0;
+      qreal mscoreDpi = 300.0;
       score->setPrinting(true);
 
       QImage::Format f = QImage::Format_ARGB32_Premultiplied;
@@ -41,8 +43,8 @@ static void processPng(HttpResponse& response, Score* score)
       Page* page = pl.at(0);
 
       QRectF r = page->abbox();
-      int w = lrint(r.width()  * convDpi / MScore::DPI);
-      int h = lrint(r.height() * convDpi / MScore::DPI);
+      int w = lrint(r.width()  * convDpi / mscoreDpi);
+      int h = lrint(r.height() * convDpi / mscoreDpi);
 
       QImage printer(w, h, f);
       printer.setDotsPerMeterX(lrint((convDpi * 1000) / INCH));
@@ -50,7 +52,7 @@ static void processPng(HttpResponse& response, Score* score)
 
       printer.fill(0xffffffff);
 
-      double mag = convDpi / MScore::DPI;
+      double mag = convDpi / mscoreDpi;
       QPainter p(&printer);
 
       p.setRenderHint(QPainter::Antialiasing, true);
@@ -81,6 +83,7 @@ static void processPng(HttpResponse& response, Score* score)
 static void processJpeg(HttpResponse& response, Score* score)
       {
       qreal convDpi = 100.0;
+      qreal mscoreDpi = 300.0;
       score->setPrinting(true);
 
       QImage::Format f = QImage::Format_ARGB32_Premultiplied;
@@ -90,8 +93,8 @@ static void processJpeg(HttpResponse& response, Score* score)
       Page* page = pl.at(0);
 
       QRectF r = page->abbox();
-      int w = lrint(r.width()  * convDpi / MScore::DPI);
-      int h = lrint(r.height() * convDpi / MScore::DPI);
+      int w = lrint(r.width()  * convDpi / mscoreDpi);
+      int h = lrint(r.height() * convDpi / mscoreDpi);
 
       QImage printer(w, h, f);
       printer.setDotsPerMeterX(lrint((convDpi * 1000) / INCH));
@@ -99,7 +102,7 @@ static void processJpeg(HttpResponse& response, Score* score)
 
       printer.fill(0xffffffff);
 
-      double mag = convDpi / MScore::DPI;
+      double mag = convDpi / mscoreDpi;
       QPainter p(&printer);
 
       p.setRenderHint(QPainter::Antialiasing, true);
@@ -130,6 +133,7 @@ static void processJpeg(HttpResponse& response, Score* score)
 
 static void processGif(HttpResponse& response, Score* score)
       {
+      qreal mscoreDpi = 300.0;
       printf("process gif...\n");
       qreal convDpi = 100.0;
       score->setPrinting(true);
@@ -141,8 +145,8 @@ static void processGif(HttpResponse& response, Score* score)
       Page* page = pl.at(0);
 
       QRectF r = page->abbox();
-      int w = lrint(r.width()  * convDpi / MScore::DPI);
-      int h = lrint(r.height() * convDpi / MScore::DPI);
+      int w = lrint(r.width()  * convDpi / mscoreDpi);
+      int h = lrint(r.height() * convDpi / mscoreDpi);
 
       QImage printer(w, h, f);
       printer.setDotsPerMeterX(lrint((convDpi * 1000) / INCH));
@@ -150,7 +154,8 @@ static void processGif(HttpResponse& response, Score* score)
 
       printer.fill(0xffffffff);
 
-      double mag = convDpi / MScore::DPI;
+
+      double mag = convDpi / mscoreDpi;
       QPainter p(&printer);
 
       p.setRenderHint(QPainter::Antialiasing, true);
@@ -197,15 +202,15 @@ void MScoreController::service(HttpRequest& request, HttpResponse& response)
       else {
 
             QByteArray name = request.getParameter("score");
-            Score* score = new Score;
+            MasterScore* score = new MasterScore;
             if (name.endsWith(".mscx")) {
                   QByteArray data = f->readAll();
                   XmlReader xr(data);
                   score->read1(xr, true);
                   }
-            else if (name.endsWith(".mscz")) {
-                  score->loadCompressedMsc(f, true);
-                  }
+            // else if (name.endsWith(".mscz")) {
+            //       score->loadCompressedMsc(f, true);
+            //       }
             else {
                   printf("bad file type <%s>\n", qPrintable(name));
                   return;
@@ -222,20 +227,20 @@ void MScoreController::service(HttpRequest& request, HttpResponse& response)
                   spatium = (spatium * size) / 100.0;
                   score->setSpatium(spatium);
                   }
-            s = request.getParameter("transpose");
-            if (!s.isEmpty()) {
-                  int transpose = s.toInt();
-                  printf("transpose %d semitones\n", transpose);
+            // s = request.getParameter("transpose");
+//             if (!s.isEmpty()) {
+//                   int transpose = s.toInt();
+//                   printf("transpose %d semitones\n", transpose);
 
-                  score->doLayout();
-                  score->cmdSelectAll();
-                  TransposeDirection d = transpose < 0 ? TRANSPOSE_DOWN :TRANSPOSE_UP;
-                  if (transpose < 0)
-                        transpose = -transpose;
-                  score->transpose(TRANSPOSE_BY_INTERVAL,
-                     d, 0, transpose, true, true, false);
-//                  score->deselectAll();
-                  }
+//                   score->doLayout();
+//                   score->cmdSelectAll();
+//                   TransposeDirection d = transpose < 0 ? TRANSPOSE_DOWN :TRANSPOSE_UP;
+//                   if (transpose < 0)
+//                         transpose = -transpose;
+//                   score->transpose(TRANSPOSE_BY_INTERVAL,
+//                      d, 0, transpose, true, true, false);
+// //                  score->deselectAll();
+//                   }
 
             score->doLayout();
             //

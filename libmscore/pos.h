@@ -1,7 +1,6 @@
 //=============================================================================
 //  AL
 //  Audio Utility Library
-//  $Id:$
 //
 //  Copyright (C) 2002-2009 by Werner Schweer and others
 //
@@ -23,12 +22,14 @@
 
 #include "sig.h"
 
+namespace Ms {
+
 class TempoMap;
 class TimeSigMap;
-class Xml;
+class XmlWriter;
 class XmlReader;
 
-enum TType { TICKS, FRAMES };
+enum class TType : char { TICKS, FRAMES };
 
 //---------------------------------------------------------
 //   Pos
@@ -54,13 +55,13 @@ class Pos {
       Pos(TempoMap*, TimeSigMap*);
       Pos(TempoMap*, TimeSigMap*, int measure, int beat, int tick);
       Pos(TempoMap*, TimeSigMap*, int minute, int sec, int frame, int subframe);
-      Pos(TempoMap*, TimeSigMap*, unsigned, TType type = TICKS);
+      Pos(TempoMap*, TimeSigMap*, unsigned, TType type = TType::TICKS);
       Pos(TempoMap*, TimeSigMap*, const QString&);
 
       void setContext(TempoMap* t, TimeSigMap* s) { tempo = t; sig = s; }
       void dump(int n = 0) const;
 
-      unsigned time(TType t) const { return t == TICKS ? tick() : frame(); }
+      unsigned time(TType t) const { return t == TType::TICKS ? tick() : frame(); }
       void mbt(int* measure, int* beat, int* tick) const;
       void msf(int* minute, int* sec, int* frame, int* subframe) const;
       SigEvent timesig() const;
@@ -98,7 +99,7 @@ class Pos {
       void setTick(unsigned);
       void setFrame(unsigned);
 
-      void write(Xml&, const char*) const;
+      void write(XmlWriter&, const char*) const;
       void read(XmlReader&);
       bool valid() const { return _valid && tempo && sig;  }
       void setInvalid()  { _valid = false; }
@@ -118,7 +119,7 @@ class PosLen : public Pos {
       PosLen(const PosLen&);
       void dump(int n = 0) const;
 
-      void write(Xml&, const char*) const;
+      void write(XmlWriter&, const char*) const;
       void read(XmlReader&);
       void setLenTick(unsigned);
       void setLenFrame(unsigned);
@@ -132,5 +133,7 @@ class PosLen : public Pos {
       bool operator==(const PosLen& s) const;
       };
 
+
+}     // namespace Ms
 #endif
 

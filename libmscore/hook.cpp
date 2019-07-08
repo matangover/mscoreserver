@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: hook.cpp 5149 2011-12-29 08:38:43Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -17,37 +16,46 @@
 #include "stem.h"
 #include "score.h"
 
+namespace Ms {
+
 //---------------------------------------------------------
 //   Hook
 //---------------------------------------------------------
 
 Hook::Hook(Score* s)
-  : Symbol(s)
+  : Symbol(s, ElementFlag::NOTHING)
       {
-      setFlag(ELEMENT_MOVABLE, false);
+      setZ(int(type()) * 100);
       }
 
 //---------------------------------------------------------
-//   setIdx
+//   setHookType
 //---------------------------------------------------------
 
-void Hook::setSubtype(int i)
+void Hook::setHookType(int i)
       {
-      _subtype = i;
+      _hookType = i;
       switch(i) {
             case 0:    break;
-            case 1:    setSym(eighthflagSym);        break;
-            case 2:    setSym(sixteenthflagSym);     break;
-            case 3:    setSym(thirtysecondflagSym);  break;
-            case 4:    setSym(sixtyfourthflagSym);   break;
-            case 5:    setSym(flag128Sym);   break;
-            case -1:   setSym(deighthflagSym);       break;
-            case -2:   setSym(dsixteenthflagSym);    break;
-            case -3:   setSym(dthirtysecondflagSym); break;
-            case -4:   setSym(dsixtyfourthflagSym);  break;
-            case -5:   setSym(dflag128Sym);  break;
+            case 1:    setSym(SymId::flag8thUp);     break;
+            case 2:    setSym(SymId::flag16thUp);    break;
+            case 3:    setSym(SymId::flag32ndUp);    break;
+            case 4:    setSym(SymId::flag64thUp);    break;
+            case 5:    setSym(SymId::flag128thUp);   break;
+            case 6:    setSym(SymId::flag256thUp);   break;
+            case 7:    setSym(SymId::flag512thUp);   break;
+            case 8:    setSym(SymId::flag1024thUp);  break;
+
+            case -1:   setSym(SymId::flag8thDown);   break;
+            case -2:   setSym(SymId::flag16thDown);  break;
+            case -3:   setSym(SymId::flag32ndDown);  break;
+            case -4:   setSym(SymId::flag64thDown);  break;
+            case -5:   setSym(SymId::flag128thDown); break;
+            case -6:   setSym(SymId::flag256thDown); break;
+            case -7:   setSym(SymId::flag512thDown); break;
+            case -8:   setSym(SymId::flag1024thDown);break;
             default:
-                  qDebug("no hook for subtype %d\n", i);
+                  qDebug("no hook for subtype %d", i);
                   break;
             }
       }
@@ -58,6 +66,19 @@ void Hook::setSubtype(int i)
 
 void Hook::layout()
       {
-      ElementLayout::layout(this);
-      setbbox(symbols[score()->symIdx()][_sym].bbox(magS()));
+      setbbox(symBbox(_sym));
       }
+
+//---------------------------------------------------------
+//   draw
+//---------------------------------------------------------
+
+void Hook::draw(QPainter* painter) const
+      {
+      // hide if belonging to the second chord of a cross-measure pair
+      if (chord() && chord()->crossMeasure() == CrossMeasure::SECOND)
+            return;
+      Symbol::draw(painter);
+      }
+
+}

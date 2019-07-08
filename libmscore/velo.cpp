@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: velo.cpp 4414 2011-06-22 19:25:31Z wschweer $
 //
 //  Copyright (C) 2009-2011 Werner Schweer
 //
@@ -18,6 +17,8 @@
 
 #include "velo.h"
 
+namespace Ms {
+
 //---------------------------------------------------------
 //   velo
 //    return velocity at tick position
@@ -31,7 +32,7 @@ int VeloList::velo(int tick) const
       if (i == constBegin())
             return 80;
       VeloList::const_iterator ii = i - 1;
-      if (ii.value().type == VELO_FIX)
+      if (ii.value().type == VeloType::FIX)
             return ii.value().val;
       int tickDelta = i.key() - ii.key();
       int veloDelta = i.value().val - ii.value().val;
@@ -48,7 +49,10 @@ int VeloList::nextVelo(int tick) const
       if (empty())
             return 80;
       VeloList::const_iterator i = upperBound(tick);
-      return i.value().val;
+      if (i != end())
+            return i.value().val;
+      else
+            return 80;
       }
 
 //---------------------------------------------------------
@@ -62,6 +66,8 @@ void VeloList::setVelo(int tick, VeloEvent ve)
 
 void VeloList::setVelo(int tick, int velo)
       {
-      insert(tick, VeloEvent(VELO_FIX, velo));
+      insert(tick, VeloEvent(VeloType::FIX, velo));
       }
+
+}
 

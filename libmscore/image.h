@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: image.h 5510 2012-03-30 14:51:09Z wschweer $
 //
 //  Copyright (C) 2002-2012 Werner Schweer
 //
@@ -16,21 +15,25 @@
 
 #include "bsymbol.h"
 
+namespace Ms {
+
 class ImageStoreItem;
 
-enum ImageType { IMAGE_NONE, IMAGE_RASTER, IMAGE_SVG };
+enum class ImageType : char { NONE, RASTER, SVG };
 
 //---------------------------------------------------------
 //   @@ Image
 //---------------------------------------------------------
 
-class Image : public BSymbol {
+class Image final : public BSymbol {
       union {
             QImage*       rasterDoc;
             QSvgRenderer* svgDoc;
             };
       ImageType imageType;
-      Q_OBJECT
+
+      QSizeF pixel2size(const QSizeF& s) const;
+      QSizeF size2pixel(const QSizeF& s) const;
 
    protected:
       ImageStoreItem* _storeItem;
@@ -44,47 +47,49 @@ class Image : public BSymbol {
       bool _sizeIsSpatium;
       mutable bool _dirty;
 
-      virtual bool isEditable() const { return true; }
-      virtual void editDrag(const EditData&);
-      virtual void updateGrips(int*, QRectF*) const;
-      virtual QPointF gripAnchor(int /*grip*/) const { return QPointF(); }
+      virtual bool isEditable() const override { return true; }
+      virtual void startEdit(EditData&) override;
+      virtual void startEditDrag(EditData&) override;
+      virtual void editDrag(EditData& ed) override;
+      virtual void endEditDrag(EditData&) override;
+      virtual void updateGrips(EditData&) const override;
+      virtual QPointF gripAnchor(Grip) const override { return QPointF(); }
 
    public:
       Image(Score* = 0);
       Image(const Image&);
       ~Image();
-      virtual Image* clone() const     { return new Image(*this); }
-      virtual ElementType type() const { return IMAGE; }
-      virtual void write(Xml& xml) const;
-      virtual void read(XmlReader&);
+      virtual Image* clone() const override     { return new Image(*this); }
+      virtual ElementType type() const override { return ElementType::IMAGE; }
+      virtual void write(XmlWriter& xml) const override;
+      virtual void read(XmlReader&) override;
       bool load(const QString& s);
-      virtual void layout();
-      virtual void draw(QPainter*) const;
+      bool loadFromData(const QString&, const QByteArray&);
+      virtual void layout() override;
+      virtual void draw(QPainter*) const override;
 
-      void setSize(const QSizeF& s)     { _size = s;    }
-      QSizeF size() const               { return _size; }
-      bool lockAspectRatio() const      { return _lockAspectRatio; }
-      void setLockAspectRatio(bool v)   { _lockAspectRatio = v;  }
-      bool autoScale() const            { return _autoScale;     }
-      void setAutoScale(bool v)         { _autoScale = v;        }
-      ImageStoreItem* storeItem() const { return _storeItem;     }
-      bool sizeIsSpatium() const        { return _sizeIsSpatium; }
-      void setSizeIsSpatium(bool val)   { _sizeIsSpatium = val;  }
+      void setSize(const QSizeF& s)      { _size = s;    }
+      QSizeF size() const                { return _size; }
+      bool lockAspectRatio() const       { return _lockAspectRatio; }
+      void setLockAspectRatio(bool v)    { _lockAspectRatio = v;  }
+      bool autoScale() const             { return _autoScale;     }
+      void setAutoScale(bool v)          { _autoScale = v;        }
+      ImageStoreItem* storeItem() const  { return _storeItem;     }
+      bool sizeIsSpatium() const         { return _sizeIsSpatium; }
+      void setSizeIsSpatium(bool val)    { _sizeIsSpatium = val;  }
 
-      QSizeF scale() const;
-      void setScale(const QSizeF&);
-      QSizeF scaleForSize(const QSizeF&) const;
-      QSizeF sizeForScale(const QSizeF&) const;
-
-      QVariant getProperty(P_ID ) const;
-      bool setProperty(P_ID propertyId, const QVariant&);
-      QVariant propertyDefault(P_ID id) const;
+      QVariant getProperty(Pid ) const;
+      bool setProperty(Pid propertyId, const QVariant&);
+      QVariant propertyDefault(Pid id) const;
 
       QSizeF imageSize() const;
-      qreal scaleFactor() const;
 
       void setImageType(ImageType);
+      ImageType getImageType() const { return imageType; }
+      bool isValid() const           { return rasterDoc || svgDoc; }
       };
 
+
+}     // namespace Ms
 #endif
 

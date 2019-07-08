@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: pedal.h 5149 2011-12-29 08:38:43Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -14,38 +13,53 @@
 #ifndef __PEDAL_H__
 #define __PEDAL_H__
 
-#include "textline.h"
+#include "textlinebase.h"
+
+namespace Ms {
+
+class Pedal;
 
 //---------------------------------------------------------
 //   @@ PedalSegment
 //---------------------------------------------------------
 
-class PedalSegment : public TextLineSegment {
-      Q_OBJECT
+class PedalSegment final : public TextLineBaseSegment {
 
-   protected:
+      virtual Sid getPropertyStyle(Pid) const override;
 
    public:
-      PedalSegment(Score* s) : TextLineSegment(s) {}
-      virtual ElementType type() const     { return PEDAL_SEGMENT; }
-      virtual PedalSegment* clone() const  { return new PedalSegment(*this); }
-      virtual void layout();
+      PedalSegment(Spanner* sp, Score* s) : TextLineBaseSegment(sp, s, ElementFlag::MOVABLE | ElementFlag::ON_STAFF) {}
+      virtual ElementType type() const override       { return ElementType::PEDAL_SEGMENT; }
+      virtual PedalSegment* clone() const override    { return new PedalSegment(*this);    }
+      Pedal* pedal() const                            { return toPedal(spanner());          }
+      virtual void layout() override;
+
+      friend class Pedal;
       };
 
 //---------------------------------------------------------
 //   @@ Pedal
 //---------------------------------------------------------
 
-class Pedal : public TextLine {
-      Q_OBJECT
+class Pedal final : public TextLineBase {
+
+      virtual Sid getPropertyStyle(Pid) const override;
+
+   protected:
+      QPointF linePos(Grip, System**) const override;
 
    public:
       Pedal(Score* s);
-      virtual Pedal* clone() const     { return new Pedal(*this); }
-      virtual ElementType type() const { return PEDAL; }
-      virtual void read(XmlReader&);
+      virtual Pedal* clone() const override     { return new Pedal(*this);   }
+      virtual ElementType type() const override { return ElementType::PEDAL; }
+      virtual void read(XmlReader&) override;
+      virtual void write(XmlWriter& xml) const override;
       LineSegment* createLineSegment();
-      virtual void setYoff(qreal);
+      virtual QVariant propertyDefault(Pid propertyId) const override;
+
+      friend class PedalLine;
       };
+
+}     // namespace Ms
 #endif
 

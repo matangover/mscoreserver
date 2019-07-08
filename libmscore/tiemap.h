@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -15,6 +14,8 @@
 #define __TIEMAP_H__
 
 #include "elementmap.h"
+
+namespace Ms {
 
 class Tie;
 
@@ -30,5 +31,7 @@ class TieMap : public ElementMap {
       void add(Tie* _o, Tie* _n) { ElementMap::add((Element*)_o, (Element*)_n); }
       };
 
+
+}     // namespace Ms
 #endif
 

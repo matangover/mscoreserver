@@ -30,7 +30,7 @@ class MScoreController : public HttpRequestHandler
    public:
       MScoreController(QObject* parent);
       ~MScoreController();
-      void service(HttpRequest& request, HttpResponse& response);
+      void service(HttpRequest& request, HttpResponse& response) override;
       };
 
 #endif

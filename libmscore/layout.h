@@ -1,9 +1,8 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
-//  Copyright (C) 2002-2011 Werner Schweer
+//  Copyright (C) 2002-2016 Werner Schweer
 //
 //  This program is free software; you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License version 2
@@ -14,21 +13,70 @@
 #ifndef __LAYOUT_H__
 #define __LAYOUT_H__
 
+namespace Ms {
+
+class Segment;
+class Page;
+
 //---------------------------------------------------------
-//   Spring
+//   LayoutContext
+//    temp values used during layout
 //---------------------------------------------------------
 
-struct Spring {
-      int seg;
-      qreal stretch;
-      qreal fix;
-      Spring(int i, qreal s, qreal f) : seg(i), stretch(s), fix(f) {}
+struct LayoutContext {
+      Score* score             { 0    };
+      bool startWithLongNames  { true };
+      bool firstSystem         { true };
+      Page* page               { 0 };
+      int curPage              { 0 };      // index in Score->page()s
+      Fraction tick            { 0, 1 };
+
+      QList<System*> systemList;          // reusable systems
+      std::set<Spanner*> processedSpanners;
+
+      System* prevSystem       { 0 };     // used during page layout
+      System* curSystem        { 0 };
+
+      MeasureBase* systemOldMeasure;
+      MeasureBase* pageOldMeasure;
+      bool rangeDone           { false };
+
+      MeasureBase* prevMeasure { 0 };
+      MeasureBase* curMeasure  { 0 };
+      MeasureBase* nextMeasure { 0 };
+      int measureNo            { 0 };
+      Fraction startTick;
+      Fraction endTick;
+
+      LayoutContext() = default;
+      LayoutContext(const LayoutContext&) = delete;
+      LayoutContext& operator=(const LayoutContext&) = delete;
+      ~LayoutContext();
+
+      void layoutLinear();
+#if 0 // unused
+      void layoutMeasureLinear(MeasureBase*);
+#endif
+
+      void layout();
+      int adjustMeasureNo(MeasureBase*);
+      void getNextPage();
+      void collectPage();
       };
 
-typedef std::multimap<qreal, Spring, std::less<qreal> > SpringMap;
-typedef SpringMap::const_iterator iSpring;
+//---------------------------------------------------------
+//   VerticalAlignRange
+//---------------------------------------------------------
 
-extern qreal sff(qreal x, qreal xMin, const SpringMap& springs);
+enum class VerticalAlignRange {
+      SEGMENT, MEASURE, SYSTEM
+      };
 
+extern bool isTopBeam(ChordRest* cr);
+extern bool notTopBeam(ChordRest* cr);
+extern bool isTopTuplet(ChordRest* cr);
+extern bool notTopTuplet(ChordRest* cr);
+
+}     // namespace Ms
 #endif
 

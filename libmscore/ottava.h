@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: ottava.h 5161 2011-12-29 17:26:34Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -14,7 +13,10 @@
 #ifndef __OTTAVA_H__
 #define __OTTAVA_H__
 
-#include "textline.h"
+#include "textlinebase.h"
+#include "property.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   OttavaE
@@ -26,75 +28,106 @@ struct OttavaE {
       unsigned end;
       };
 
+//---------------------------------------------------------
+//   OttavaType
+//---------------------------------------------------------
+
+enum class OttavaType : char {
+      OTTAVA_8VA,
+      OTTAVA_8VB,
+      OTTAVA_15MA,
+      OTTAVA_15MB,
+      OTTAVA_22MA,
+      OTTAVA_22MB
+      };
+
+//---------------------------------------------------------
+//   OttavaDefault
+//---------------------------------------------------------
+
+struct OttavaDefault {
+      OttavaType type;
+      int shift;
+      const char* name;
+      };
+
+// order is important, should be the same as OttavaType
+static const OttavaDefault ottavaDefault[] = {
+      { OttavaType::OTTAVA_8VA,  12,  "8va"   },
+      { OttavaType::OTTAVA_8VB,  -12, "8vb"   },
+      { OttavaType::OTTAVA_15MA, 24,  "15ma"  },
+      { OttavaType::OTTAVA_15MB, -24, "15mb"  },
+      { OttavaType::OTTAVA_22MA, 36,  "22ma"  },
+      { OttavaType::OTTAVA_22MB, -36, "22mb"  }
+      };
+
+
 class Ottava;
 
 //---------------------------------------------------------
 //   @@ OttavaSegment
 //---------------------------------------------------------
 
-class OttavaSegment : public TextLineSegment {
-      Q_OBJECT
-
-   protected:
+class OttavaSegment final : public TextLineBaseSegment {
+      virtual void undoChangeProperty(Pid id, const QVariant&, PropertyFlags ps) override;
+      virtual Sid getPropertyStyle(Pid) const override;
 
    public:
-      OttavaSegment(Score* s) : TextLineSegment(s) {}
-      virtual ElementType type() const     { return OTTAVA_SEGMENT; }
-      virtual OttavaSegment* clone() const { return new OttavaSegment(*this); }
-      Ottava* ottava() const               { return (Ottava*)spanner(); }
-      virtual void layout();
+      OttavaSegment(Spanner* sp, Score* s) : TextLineBaseSegment(sp, s, ElementFlag::MOVABLE | ElementFlag::ON_STAFF)  { }
+      virtual ElementType type() const override     { return ElementType::OTTAVA_SEGMENT; }
+      virtual OttavaSegment* clone() const override { return new OttavaSegment(*this); }
+      Ottava* ottava() const                        { return (Ottava*)spanner(); }
+      virtual void layout() override;
+      virtual Element* propertyDelegate(Pid) override;
       };
 
 //---------------------------------------------------------
 //   @@ Ottava
-//   @P subtype   enum OttavaType OTTAVA_8VA, OTTAVA_15MA, OTTAVA_8VB, OTTAVA_15MB
+//   @P ottavaType  enum (Ottava.OTTAVA_8VA, .OTTAVA_8VB, .OTTAVA_15MA, .OTTAVA_15MB, .OTTAVA_22MA, .OTTAVA_22MB)
 //---------------------------------------------------------
 
-class Ottava : public TextLine {
-      Q_OBJECT
-      Q_ENUMS(OttavaType)
+class Ottava final : public TextLineBase {
+      OttavaType _ottavaType;
+      bool _numbersOnly;
 
-   public:
-      enum OttavaType {
-            OTTAVA_8VA,
-            OTTAVA_15MA,
-            OTTAVA_8VB,
-            OTTAVA_15MB
-            };
-
-   private:
-      Q_PROPERTY(OttavaType subtype READ subtype WRITE undoSetSubtype)
-      OttavaType _subtype;
+      void updateStyledProperties();
+      virtual Sid getPropertyStyle(Pid) const override;
+      virtual void undoChangeProperty(Pid id, const QVariant&, PropertyFlags ps) override;
 
    protected:
-      QString text;
-      int _pitchShift;
-      mutable qreal textHeight;     ///< cached value
-
       friend class OttavaSegment;
 
    public:
       Ottava(Score* s);
-      virtual Ottava* clone() const    { return new Ottava(*this); }
-      virtual ElementType type() const { return OTTAVA; }
+      Ottava(const Ottava&);
+      virtual Ottava* clone() const override    { return new Ottava(*this); }
+      virtual ElementType type() const override { return ElementType::OTTAVA; }
 
-      void setSubtype(OttavaType val);
-      OttavaType subtype() const { return _subtype; }
-      void undoSetSubtype(OttavaType val);
+      void setOttavaType(OttavaType val);
+      OttavaType ottavaType() const             { return _ottavaType; }
 
-      virtual LineSegment* createLineSegment();
-      virtual void layout();
-      int pitchShift() const { return _pitchShift; }
-      virtual void endEdit();
-      virtual void write(Xml& xml) const;
-      virtual void read(XmlReader& de);
+      bool numbersOnly() const                  { return _numbersOnly; }
+      void setNumbersOnly(bool val);
 
-      virtual QVariant getProperty(P_ID propertyId) const;
-      virtual bool setProperty(P_ID propertyId, const QVariant&);
-      virtual QVariant propertyDefault(P_ID) const;
-      virtual void setYoff(qreal);
+      void setPlacement(Placement);
+
+      virtual LineSegment* createLineSegment() override;
+      int pitchShift() const;
+
+      virtual void write(XmlWriter& xml) const override;
+      virtual void read(XmlReader& de) override;
+      bool readProperties(XmlReader& e);
+
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid) const override;
+      virtual Pid propertyId(const QStringRef& xmlName) const override;
+
+      virtual QString accessibleInfo() const override;
+      static const char* ottavaTypeName(OttavaType type);
       };
 
-Q_DECLARE_METATYPE(Ottava::OttavaType)
+}     // namespace Ms
+
 #endif
 

@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2011 Werner Schweer and others
 //
@@ -14,39 +13,73 @@
 #ifndef __MSCOREVIEW_H__
 #define __MSCOREVIEW_H__
 
+namespace Ms {
+
 class Element;
 class Score;
 class Note;
+class Page;
+class ChordRest;
+
+enum class Grip : int;
+enum class HairpinType : signed char;
 
 //---------------------------------------------------------
 //   MuseScoreView
 //---------------------------------------------------------
 
 class MuseScoreView {
+
+   protected:
+      Score* _score;
+
    public:
       MuseScoreView() {}
+      Page* point2page(const QPointF&);
+      Element* elementAt(const QPointF& p);
+      const QList<Element*> elementsAt(const QPointF&);
+      virtual Element* elementNear(QPointF) { return 0; }
+
       virtual void layoutChanged() {}
       virtual void dataChanged(const QRectF&) = 0;
       virtual void updateAll() = 0;
-      virtual void moveCursor() = 0;
-      virtual void adjustCanvasPosition(const Element* el, bool playBack) = 0;
-      virtual void setScore(Score*) = 0;
-      virtual void removeScore() = 0;
 
-      virtual void changeEditElement(Element*) = 0;
-      virtual QCursor cursor() const = 0;
-      virtual void setCursor(const QCursor&) = 0;
-      virtual int gripCount() const = 0;
-      virtual const QRectF& getGrip(int) const = 0;
-      virtual void setDropRectangle(const QRectF&) = 0;
-      virtual void cmdAddSlur(Note* firstNote, Note* lastNote) = 0;
-      virtual void startEdit() = 0;
-      virtual void startEdit(Element*, int startGrip) = 0;
-      virtual Element* elementNear(QPointF) = 0;
+      virtual void moveCursor()          {}
+      virtual void showLoopCursors(bool) {}
+
+      virtual void adjustCanvasPosition(const Element*, bool /*playBack*/, int /*staffIdx*/ = -1) {};
+      virtual void setScore(Score* s) { _score = s; }
+      Score* score() const            { return _score; }
+      virtual void removeScore() {};
+
+      virtual void changeEditElement(Element*) {};
+      virtual QCursor cursor() const { return QCursor(); }
+      virtual void setCursor(const QCursor&) {};
+      virtual int gripCount() const { return 0; }
+      virtual void setDropRectangle(const QRectF&) {};
+      virtual void cmdAddSlur(ChordRest*, ChordRest*) {};
+      virtual void startEdit() {};
+      virtual void startEditMode(Element*) {};
+      virtual void startEdit(Element*, Grip /*startGrip*/) {};
+      virtual void startNoteEntryMode() {};
       virtual void drawBackground(QPainter*, const QRectF&) const = 0;
+      virtual void setDropTarget(const Element*) {}
+
+      virtual void textTab(bool /*back*/) {}
+      virtual void lyricsTab(bool /*back*/, bool /*end*/, bool /*moveOnly*/) {}
+      virtual void lyricsReturn() {}
+      virtual void lyricsEndEdit() {}
+      virtual void lyricsUpDown(bool /*up*/, bool /*end*/)  {}
+      virtual void lyricsMinus()  {}
+      virtual void lyricsUnderscore()  {}
+
+      virtual void onElementDestruction(Element*) {}
+
+      virtual const QRect geometry() const = 0;
       };
 
+
+}     // namespace Ms
+
 #endif
-
-
 

@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: keyfinder.h 4515 2011-07-13 09:56:53Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -14,12 +13,14 @@
 #ifndef __KEYFINDER_H__
 #define __KEYFINDER_H__
 
-class MidiTrack;
+namespace Ms {
+      class MidiTrack;
+      }
 
 namespace AL {
       class TimeSigMap;
       };
 
-// extern int findKey(MidiTrack*, AL::TimeSigMap*);
+
 #endif
 

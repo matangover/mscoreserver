@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: element.cpp 5156 2011-12-29 13:27:04Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -14,6 +13,12 @@
 #include "notedot.h"
 #include "score.h"
 #include "staff.h"
+#include "sym.h"
+#include "xml.h"
+#include "chord.h"
+#include "rest.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   NoteDot
@@ -22,18 +27,7 @@
 NoteDot::NoteDot(Score* s)
    : Element(s)
       {
-      setFlag(ELEMENT_MOVABLE, false);
-      }
-
-//---------------------------------------------------------
-//   layout
-//    height() and width() should return sensible
-//    values when calling this method
-//---------------------------------------------------------
-
-void NoteDot::layout()
-      {
-      setbbox(symbols[score()->symIdx()][dotSym].bbox(magS()));
+      setFlag(ElementFlag::MOVABLE, false);
       }
 
 //---------------------------------------------------------
@@ -42,21 +36,22 @@ void NoteDot::layout()
 
 void NoteDot::draw(QPainter* p) const
       {
-      if (!staff()->isTabStaff()) {
+      if (note() && note()->dotsHidden())     // don't draw dot if note is hidden
+            return;
+      Fraction tick = note() ? note()->chord()->tick() : rest()->tick();
+      if (!staff()->isTabStaff(tick) || staff()->staffType(tick)->stemThrough()) {
             p->setPen(curColor());
-            symbols[score()->symIdx()][dotSym].draw(p, magS());
+            drawSymbol(SymId::augmentationDot, p);
             }
       }
 
 //---------------------------------------------------------
-//   write
+//   layout
 //---------------------------------------------------------
 
-void NoteDot::write(Xml& xml) const
+void NoteDot::layout()
       {
-      xml.stag(name());
-      Element::writeProperties(xml);
-      xml.etag();
+      setbbox(symBbox(SymId::augmentationDot));
       }
 
 //---------------------------------------------------------
@@ -68,7 +63,20 @@ void NoteDot::read(XmlReader& e)
       while (e.readNextStartElement()) {
             if (e.name() == "name")    // obsolete
                   e.readElementText();
+            else if (e.name() == "subtype")     // obsolete
+                  e.readElementText();
             else if (!Element::readProperties(e))
                   e.unknown();
             }
       }
+
+//---------------------------------------------------------
+//   mag
+//---------------------------------------------------------
+
+qreal NoteDot::mag() const
+      {
+      return parent()->mag() * score()->styleD(Sid::dotMag);
+      }
+}
+

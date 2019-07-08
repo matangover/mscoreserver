@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: volta.cpp 5610 2012-05-08 09:56:00Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -16,6 +15,45 @@
 #include "xml.h"
 #include "score.h"
 #include "text.h"
+#include "system.h"
+#include "measure.h"
+#include "score.h"
+#include"tempo.h"
+#include "velo.h"
+#include "staff.h"
+
+namespace Ms {
+
+static const ElementStyle voltaStyle {
+      { Sid::voltaFontFace,                      Pid::BEGIN_FONT_FACE         },
+      { Sid::voltaFontFace,                      Pid::CONTINUE_FONT_FACE      },
+      { Sid::voltaFontFace,                      Pid::END_FONT_FACE           },
+      { Sid::voltaFontSize,                      Pid::BEGIN_FONT_SIZE         },
+      { Sid::voltaFontSize,                      Pid::CONTINUE_FONT_SIZE      },
+      { Sid::voltaFontSize,                      Pid::END_FONT_SIZE           },
+      { Sid::voltaFontStyle,                     Pid::BEGIN_FONT_STYLE        },
+      { Sid::voltaFontStyle,                     Pid::CONTINUE_FONT_STYLE     },
+      { Sid::voltaFontStyle,                     Pid::END_FONT_STYLE          },
+      { Sid::voltaAlign,                         Pid::BEGIN_TEXT_ALIGN        },
+      { Sid::voltaAlign,                         Pid::CONTINUE_TEXT_ALIGN     },
+      { Sid::voltaAlign,                         Pid::END_TEXT_ALIGN          },
+      { Sid::voltaOffset,                        Pid::BEGIN_TEXT_OFFSET       },
+      { Sid::voltaOffset,                        Pid::CONTINUE_TEXT_OFFSET    },
+      { Sid::voltaOffset,                        Pid::END_TEXT_OFFSET         },
+      { Sid::voltaLineWidth,                     Pid::LINE_WIDTH              },
+      { Sid::voltaLineStyle,                     Pid::LINE_STYLE              },
+      { Sid::voltaHook,                          Pid::BEGIN_HOOK_HEIGHT       },
+      { Sid::voltaHook,                          Pid::END_HOOK_HEIGHT         },
+      { Sid::voltaPosAbove,                      Pid::OFFSET                  },
+      };
+
+//---------------------------------------------------------
+//   VoltaSegment
+//---------------------------------------------------------
+
+VoltaSegment::VoltaSegment(Spanner* sp, Score* s) : TextLineBaseSegment(sp, s, ElementFlag::MOVABLE | ElementFlag::ON_STAFF | ElementFlag::SYSTEM)
+      {
+      }
 
 //---------------------------------------------------------
 //   layout
@@ -23,10 +61,19 @@
 
 void VoltaSegment::layout()
       {
-      TextLineSegment::layout1();
-      if (parent())     // for palette
-            rypos() += score()->styleS(ST_voltaY).val() * spatium();
-      adjustReadPos();
+      TextLineBaseSegment::layout();
+      autoplaceSpannerSegment();
+      }
+
+//---------------------------------------------------------
+//   propertyDelegate
+//---------------------------------------------------------
+
+Element* VoltaSegment::propertyDelegate(Pid pid)
+      {
+      if (pid == Pid::BEGIN_HOOK_TYPE || pid == Pid::END_HOOK_TYPE || pid == Pid::VOLTA_ENDING)
+            return spanner();
+      return TextLineBaseSegment::propertyDelegate(pid);
       }
 
 //---------------------------------------------------------
@@ -34,49 +81,24 @@ void VoltaSegment::layout()
 //---------------------------------------------------------
 
 Volta::Volta(Score* s)
-   : TextLine(s)
+   : TextLineBase(s, ElementFlag::SYSTEM)
       {
-      _subtype = VOLTA_OPEN;
-      setBeginText("1.", s->textStyle(TEXT_STYLE_VOLTA));
+      setPlacement(Placement::ABOVE);
+      initElementStyle(&voltaStyle);
 
-      setBeginTextPlace(PLACE_BELOW);
-      setContinueTextPlace(PLACE_BELOW);
+      setBeginTextPlace(PlaceText::BELOW);
+      setContinueTextPlace(PlaceText::BELOW);
+      setLineVisible(true);
+      resetProperty(Pid::BEGIN_TEXT);
+      resetProperty(Pid::CONTINUE_TEXT);
+      resetProperty(Pid::END_TEXT);
+      resetProperty(Pid::BEGIN_TEXT_PLACE);
+      resetProperty(Pid::CONTINUE_TEXT_PLACE);
+      resetProperty(Pid::END_TEXT_PLACE);
+      resetProperty(Pid::BEGIN_HOOK_TYPE);
+      resetProperty(Pid::END_HOOK_TYPE);
 
-      setBeginHook(true);
-      Spatium hook(s->styleS(ST_voltaHook));
-      setBeginHookHeight(hook);
-      setEndHookHeight(hook);
-      setAnchor(ANCHOR_MEASURE);
-      }
-
-//---------------------------------------------------------
-//   setSubtype
-//---------------------------------------------------------
-
-void Volta::setSubtype(VoltaType val)
-      {
-      _subtype = val;
-      switch(val) {
-            case VOLTA_OPEN:
-                  setEndHook(false);
-                  break;
-            case VOLTA_CLOSED:
-                  setEndHook(true);
-                  break;
-            }
-      }
-
-//---------------------------------------------------------
-//   layout
-//---------------------------------------------------------
-
-void Volta::layout()
-      {
-      setLineWidth(score()->styleS(ST_voltaLineWidth));
-      Spatium hook(score()->styleS(ST_voltaHook));
-      setBeginHookHeight(hook);
-      setEndHookHeight(hook);
-      TextLine::layout();
+      setAnchor(Anchor::MEASURE);
       }
 
 //---------------------------------------------------------
@@ -85,9 +107,7 @@ void Volta::layout()
 
 void Volta::setText(const QString& s)
       {
-      setBeginText(s, score()->textStyle(TEXT_STYLE_VOLTA));
-      foreach(SpannerSegment* seg, spannerSegments())
-            static_cast<VoltaSegment*>(seg)->clearText();
+      setBeginText(s);
       }
 
 //---------------------------------------------------------
@@ -96,7 +116,7 @@ void Volta::setText(const QString& s)
 
 QString Volta::text() const
       {
-      return beginText()->getText();
+      return beginText();
       }
 
 //---------------------------------------------------------
@@ -105,26 +125,20 @@ QString Volta::text() const
 
 void Volta::read(XmlReader& e)
       {
-      qDeleteAll(spannerSegments());
-      spannerSegments().clear();
+      eraseSpannerSegments();
 
-      setId(e.intAttribute("id", -1));
       while (e.readNextStartElement()) {
             const QStringRef& tag(e.name());
-            if (tag == "subtype")
-                  setSubtype(VoltaType(e.readInt()));
-            else if (tag == "text")            // obsolete
-                  setText(e.readElementText());
-            else if (tag == "endings") {
+            if (tag == "endings") {
                   QString s = e.readElementText();
                   QStringList sl = s.split(",", QString::SkipEmptyParts);
                   _endings.clear();
-                  foreach(const QString& l, sl) {
+                  for (const QString& l : sl) {
                         int i = l.simplified().toInt();
                         _endings.append(i);
                         }
                   }
-            else if (!TextLine::readProperties(e))
+            else if (!TextLineBase::readProperties(e))
                   e.unknown();
             }
       }
@@ -133,16 +147,12 @@ void Volta::read(XmlReader& e)
 //   write
 //---------------------------------------------------------
 
-void Volta::write(Xml& xml) const
+void Volta::write(XmlWriter& xml) const
       {
-      Volta proto(score());
-      proto.setSubtype(subtype());
-
-      xml.stag(QString("%1 id=\"%2\"").arg(name()).arg(id()));
-      xml.tag("subtype", _subtype);
-      TextLine::writeProperties(xml, &proto);
+      xml.stag(this);
+      TextLineBase::writeProperties(xml);
       QString s;
-      foreach(int i, _endings) {
+      for (int i : _endings) {
             if (!s.isEmpty())
                   s += ", ";
             s += QString("%1").arg(i);
@@ -155,9 +165,17 @@ void Volta::write(Xml& xml) const
 //   createLineSegment
 //---------------------------------------------------------
 
+static const ElementStyle voltaSegmentStyle {
+      { Sid::voltaPosAbove,                      Pid::OFFSET                  },
+      { Sid::voltaMinDistance,                   Pid::MIN_DISTANCE            },
+      };
+
 LineSegment* Volta::createLineSegment()
       {
-      return new VoltaSegment(score());
+      VoltaSegment* vs = new VoltaSegment(this, score());
+      vs->setTrack(track());
+      vs->initElementStyle(&voltaSegmentStyle);
+      return vs;
       }
 
 //---------------------------------------------------------
@@ -166,7 +184,7 @@ LineSegment* Volta::createLineSegment()
 
 bool Volta::hasEnding(int repeat) const
       {
-      foreach(int ending, endings()) {
+      for (int ending : endings()) {
             if (ending == repeat)
                   return true;
             }
@@ -174,38 +192,47 @@ bool Volta::hasEnding(int repeat) const
       }
 
 //---------------------------------------------------------
+//   lastEnding
+//---------------------------------------------------------
+
+int Volta::lastEnding() const
+      {
+      if (_endings.isEmpty())
+            return 0;
+      return _endings.last();
+      }
+
+//---------------------------------------------------------
 //   getProperty
 //---------------------------------------------------------
 
-QVariant Volta::getProperty(P_ID propertyId) const
+QVariant Volta::getProperty(Pid propertyId) const
       {
-      switch(propertyId) {
-            case P_VOLTA_TYPE:
-                  return subtype();
+      switch (propertyId) {
+            case Pid::VOLTA_ENDING:
+                  return QVariant::fromValue(endings());
             default:
                   break;
             }
-      return TextLine::getProperty(propertyId);
+      return TextLineBase::getProperty(propertyId);
       }
 
 //---------------------------------------------------------
 //   setProperty
 //---------------------------------------------------------
 
-bool Volta::setProperty(P_ID propertyId, const QVariant& val)
+bool Volta::setProperty(Pid propertyId, const QVariant& val)
       {
-      score()->addRefresh(pageBoundingRect());
-      switch(propertyId) {
-            case P_VOLTA_TYPE:
-                  setSubtype(VoltaType(val.toInt()));
+      switch (propertyId) {
+            case Pid::VOLTA_ENDING:
+                  setEndings(val.value<QList<int>>());
                   break;
             default:
-                  if (!TextLine::setProperty(propertyId, val))
+                  if (!TextLineBase::setProperty(propertyId, val))
                         return false;
                   break;
             }
-      layout();
-      score()->addRefresh(pageBoundingRect());
+      triggerLayout();
       return true;
       }
 
@@ -213,32 +240,144 @@ bool Volta::setProperty(P_ID propertyId, const QVariant& val)
 //   propertyDefault
 //---------------------------------------------------------
 
-QVariant Volta::propertyDefault(P_ID propertyId) const
+QVariant Volta::propertyDefault(Pid propertyId) const
       {
-      switch(propertyId) {
-            case P_VOLTA_TYPE:
-                  return 0;
+      switch (propertyId) {
+            case Pid::VOLTA_ENDING:
+                  return QVariant::fromValue(QList<int>());
+            case Pid::ANCHOR:
+                  return int(Anchor::MEASURE);
+            case Pid::BEGIN_HOOK_TYPE:
+                  return int(HookType::HOOK_90);
+            case Pid::END_HOOK_TYPE:
+                  return int(HookType::NONE);
+            case Pid::BEGIN_TEXT:
+            case Pid::CONTINUE_TEXT:
+            case Pid::END_TEXT:
+                  return "";
+            case Pid::LINE_VISIBLE:
+                  return true;
+            case Pid::BEGIN_TEXT_PLACE:
+            case Pid::CONTINUE_TEXT_PLACE:
+            case Pid::END_TEXT_PLACE:
+                  return int(PlaceText::ABOVE);
+
+            case Pid::PLACEMENT:
+                  return int(Placement::ABOVE);
+
             default:
-                  return TextLine::propertyDefault(propertyId);
+                  return TextLineBase::propertyDefault(propertyId);
             }
-      return QVariant();
       }
 
 //---------------------------------------------------------
-//   undoSetSubtype
+//   layoutSystem
 //---------------------------------------------------------
 
-void Volta::undoSetSubtype(VoltaType val)
+SpannerSegment * Volta::layoutSystem(System * system)
       {
-      score()->undoChangeProperty(this, P_VOLTA_TYPE, val);
+      SpannerSegment* voltaSegment= SLine::layoutSystem(system);
+
+      // we need set tempo in layout because all tempos of score is set in layout
+      // so fermata in seconda volta works correct because fermata apply itself tempo during layouting
+      setTempo();
+
+      return voltaSegment;
       }
 
 //---------------------------------------------------------
-//   setYoff
+//   setVelocity
 //---------------------------------------------------------
 
-void Volta::setYoff(qreal val)
+void Volta::setVelocity() const
       {
-      rUserYoffset() += (val - score()->styleS(ST_voltaY).val()) * spatium();
+      Measure* startMeasure = Spanner::startMeasure();
+      Measure* endMeasure = Spanner::endMeasure();
+
+      if (startMeasure && endMeasure) {
+            if (!endMeasure->repeatEnd())
+                  return;
+
+            int startTick  = startMeasure->tick().ticks() - 1;
+            int endTick    = (endMeasure->tick() + endMeasure->ticks()).ticks() - 1;
+            Staff* st      = staff();
+            VeloList& velo = st->velocities();
+            auto prevVelo  = velo.velo(startTick);
+            velo.setVelo(endTick, prevVelo);
+            }
       }
+
+//---------------------------------------------------------
+//   setChannel
+//---------------------------------------------------------
+
+void Volta::setChannel() const
+      {
+      Measure* startMeasure = Spanner::startMeasure();
+      Measure* endMeasure = Spanner::endMeasure();
+
+      if (startMeasure && endMeasure) {
+            if (!endMeasure->repeatEnd())
+                  return;
+
+            Fraction startTick = startMeasure->tick() - Fraction::fromTicks(1);
+            Fraction endTick  = endMeasure->endTick() - Fraction::fromTicks(1);
+            Staff* st = staff();
+            for (int voice = 0; voice < VOICES; ++voice) {
+                  int channel = st->channel(startTick, voice);
+                  st->insertIntoChannelList(voice, endTick, channel);
+                  }
+            }
+      }
+
+//---------------------------------------------------------
+//   setTempo
+//---------------------------------------------------------
+
+void Volta::setTempo() const
+      {
+      Measure* startMeasure = Spanner::startMeasure();
+      Measure* endMeasure = Spanner::endMeasure();
+
+      if (startMeasure && endMeasure) {
+            if (!endMeasure->repeatEnd())
+                  return;
+            Fraction startTick = startMeasure->tick() - Fraction::fromTicks(1);
+            Fraction endTick  = endMeasure->endTick() - Fraction::fromTicks(1);
+            qreal tempoBeforeVolta = score()->tempomap()->tempo(startTick.ticks());
+            score()->setTempo(endTick, tempoBeforeVolta);
+            }
+      }
+
+//---------------------------------------------------------
+//   accessibleInfo
+//---------------------------------------------------------
+
+QString Volta::accessibleInfo() const
+      {
+      return QString("%1: %2").arg(Element::accessibleInfo()).arg(text());
+      }
+
+//---------------------------------------------------------
+//   setVoltaType
+//    deprecated
+//---------------------------------------------------------
+
+void Volta::setVoltaType(Type val)
+      {
+      setEndHookType(Type::CLOSED == val ? HookType::HOOK_90 : HookType::NONE);
+      }
+
+//---------------------------------------------------------
+//   voltaType
+//    deprecated
+//---------------------------------------------------------
+
+Volta::Type Volta::voltaType() const
+      {
+      return endHookType() != HookType::NONE ? Type::CLOSED : Type::OPEN;
+      }
+
+
+}
 

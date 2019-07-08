@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: velo.h 4414 2011-06-22 19:25:31Z wschweer $
 //
 //  Copyright (C) 2009-2011 Werner Schweer
 //
@@ -19,17 +18,18 @@
  Definition of classes VeloList.
 */
 
+namespace Ms {
+
 //---------------------------------------------------------
 ///   VeloEvent
 ///   item in VeloList
 //---------------------------------------------------------
 
-enum VeloType { VELO_FIX, VELO_RAMP };
+enum class VeloType : char { FIX, RAMP };
 
 struct VeloEvent {
       VeloType type;
       char val;
-
       VeloEvent() {}
       VeloEvent(VeloType t, char v) : type(t), val(v) {}
       };
@@ -48,5 +48,7 @@ class VeloList : public QMap<int, VeloEvent> {
       void setVelo(int tick, int velocity);
       };
 
+
+}     // namespace Ms
 #endif
 

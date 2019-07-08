@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2011 Werner Schweer
 //
@@ -15,6 +14,10 @@
 #define __SEGMENTLIST_H__
 
 #include "segment.h"
+
+namespace Ms {
+
+class Segment;
 
 //---------------------------------------------------------
 //   SegmentList
@@ -37,16 +40,43 @@ class SegmentList {
       int size() const                     { return _size;        }
 
       Segment* first() const               { return _first;       }
-      Segment* first(Segment::SegmentTypes) const;
+      Segment* first(SegmentType) const;
+      Segment* first(ElementFlag) const;
 
       Segment* last() const                { return _last;        }
       Segment* firstCRSegment() const;
       void remove(Segment*);
       void push_back(Segment*);
       void push_front(Segment*);
-      void insert(Segment*);
-      void insert(Segment* e, Segment* el);
+      void insert(Segment* e, Segment* el);  // insert e before el
+
+      class iterator {
+            Segment* p;
+         public:
+            iterator(Segment* s) { p = s; }
+            iterator operator++() { iterator i(p); p = p->next(); return i; }
+            bool operator !=(const iterator& i) const { return p != i.p; }
+            Segment& operator*() { return *p; }
+            };
+      class const_iterator {
+            const Segment* p;
+         public:
+            const_iterator(const Segment* s) { p = s; }
+            const_iterator operator++() { const_iterator i(p); p = p->next(); return i; }
+            bool operator !=(const const_iterator& i) const { return p != i.p; }
+            const Segment& operator*() const { return *p; }
+            };
+
+      iterator begin()             { return _first; }
+      iterator end()               { return 0; }
+      const_iterator begin() const { return _first; }
+      const_iterator end() const   { return 0; }
       };
 
+// Segment* begin(SegmentList& l) { return l.first(); }
+// Segment* end(SegmentList&) { return 0; }
+
+
+}     // namespace Ms
 #endif
 

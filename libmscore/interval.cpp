@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -13,6 +12,8 @@
 
 #include "interval.h"
 #include "utils.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   Interval
@@ -52,3 +53,6 @@ bool Interval::isZero() const
       {
       return diatonic == 0 && chromatic == 0;
       }
+
+}
+

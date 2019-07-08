@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: layoutbreak.h 5499 2012-03-28 12:23:57Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -16,47 +15,53 @@
 
 #include "element.h"
 
-class QPainter;
+namespace Ms {
 
 // layout break subtypes:
-
-enum LayoutBreakType {
-      LAYOUT_BREAK_PAGE, LAYOUT_BREAK_LINE, LAYOUT_BREAK_SECTION
-      };
 
 //---------------------------------------------------------
 //   @@ LayoutBreak
 ///    symbols for line break, page break etc.
 //---------------------------------------------------------
 
-class LayoutBreak : public Element {
-      Q_OBJECT
+class LayoutBreak final : public Element {
+      Q_GADGET
+   public:
+      enum Type {
+            ///.\{
+            PAGE, LINE, SECTION, NOBREAK
+            ///\}
+            };
+   private:
+      Q_ENUM(Type)
 
-      LayoutBreakType _subtype;
       qreal lw;
       QPainterPath path;
+      QPainterPath path2;
       qreal _pause;
       bool _startWithLongNames;
       bool _startWithMeasureOne;
+      Type _layoutBreakType;
 
-      virtual void draw(QPainter*) const;
+      virtual void draw(QPainter*) const override;
       void layout0();
-      virtual void spatiumChanged(qreal oldValue, qreal newValue);
+      virtual void spatiumChanged(qreal oldValue, qreal newValue) override;
 
    public:
-      LayoutBreak(Score*);
-      virtual LayoutBreak* clone() const { return new LayoutBreak(*this); }
+      LayoutBreak(Score* = 0);
+      LayoutBreak(const LayoutBreak&);
+      virtual LayoutBreak* clone() const override { return new LayoutBreak(*this); }
 
-      virtual ElementType type() const { return LAYOUT_BREAK; }
-      virtual bool systemFlag() const  { return true;  }
+      virtual ElementType type() const override   { return ElementType::LAYOUT_BREAK; }
 
-      void setSubtype(LayoutBreakType);
-      LayoutBreakType subtype() const  { return _subtype; }
+      void setLayoutBreakType(Type);
+      Type layoutBreakType() const  { return _layoutBreakType; }
 
-      virtual bool acceptDrop(MuseScoreView*, const QPointF&, Element*) const;
-      virtual Element* drop(const DropData&);
-      virtual void write(Xml&) const;
-      virtual void read(XmlReader&);
+      virtual bool acceptDrop(EditData&) const override;
+      virtual Element* drop(EditData&) override;
+      virtual void write(XmlWriter&) const override;
+      virtual void read(XmlReader&) override;
+
       Measure* measure() const            { return (Measure*)parent();   }
       qreal pause() const                 { return _pause;               }
       void setPause(qreal v)              { _pause = v;                  }
@@ -65,9 +70,18 @@ class LayoutBreak : public Element {
       bool startWithMeasureOne() const    { return _startWithMeasureOne; }
       void setStartWithMeasureOne(bool v) { _startWithMeasureOne = v;    }
 
-      virtual QVariant getProperty(P_ID propertyId) const;
-      virtual bool setProperty(P_ID propertyId, const QVariant&);
-      virtual QVariant propertyDefault(P_ID) const;
+      bool isPageBreak() const    { return _layoutBreakType == PAGE;    }
+      bool isLineBreak() const    { return _layoutBreakType == LINE;    }
+      bool isSectionBreak() const { return _layoutBreakType == SECTION; }
+      bool isNoBreak() const      { return _layoutBreakType == NOBREAK; }
+
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid) const override;
+      virtual Pid propertyId(const QStringRef& xmlName) const override;
       };
+
+
+}     // namespace Ms
 
 #endif

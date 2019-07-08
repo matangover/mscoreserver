@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -17,6 +16,9 @@
 #include "staff.h"
 #include "chord.h"
 #include "note.h"
+#include "xml.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   label
@@ -28,14 +30,37 @@ static const char* label[] = {
       "2 1/4", "2 1/2", "2 3/4", "3"
       };
 
+static const ElementStyle bendStyle {
+      { Sid::bendFontSize,                       Pid::FONT_SIZE              },
+      { Sid::bendFontStyle,                      Pid::FONT_STYLE             },
+      { Sid::bendLineWidth,                      Pid::LINE_WIDTH             },
+      };
+
 //---------------------------------------------------------
 //   Bend
 //---------------------------------------------------------
 
 Bend::Bend(Score* s)
-   : Element(s)
+   : Element(s, ElementFlag::MOVABLE)
       {
-      setFlags(ELEMENT_MOVABLE | ELEMENT_SELECTABLE);
+      initElementStyle(&bendStyle);
+      }
+
+//---------------------------------------------------------
+//   font
+//---------------------------------------------------------
+
+QFont Bend::font(qreal sp) const
+      {
+      QFont f(_fontFace);
+      f.setBold(_fontStyle & FontStyle::Bold);
+      f.setItalic(_fontStyle & FontStyle::Italic);
+      f.setUnderline(_fontStyle & FontStyle::Underline);
+      qreal m = _fontSize;
+      m *= sp / SPATIUM20;
+
+      f.setPointSizeF(m);
+      return f;
       }
 
 //---------------------------------------------------------
@@ -44,18 +69,21 @@ Bend::Bend(Score* s)
 
 void Bend::layout()
       {
+      // during mtest, there may be no score. If so, exit.
+      if (!score())
+            return;
+
       qreal _spatium = spatium();
 
-      if (staff() && !staff()->isTabStaff()) {
-            setbbox(QRectF());
+      if (staff() && !staff()->isTabStaff(tick())) {
             if (!parent()) {
                   noteWidth = -_spatium*2;
                   notePos   = QPointF(0.0, _spatium*3);
                   }
             }
 
-      _lw        = _spatium * 0.15;
-      Note* note = static_cast<Note*>(parent());
+      qreal _lw = _lineWidth;
+      Note* note = toNote(parent());
       if (note == 0) {
             noteWidth = 0.0;
             notePos = QPointF();
@@ -66,9 +94,7 @@ void Bend::layout()
             }
       QRectF bb;
 
-      const TextStyle* st = &score()->textStyle(TEXT_STYLE_BENCH);
-      QFont f = st->fontPx(_spatium);
-      QFontMetricsF fm(f);
+      QFontMetricsF fm(font(_spatium), MScore::paintDevice());
 
       int n   = _points.size();
       qreal x = noteWidth;
@@ -116,7 +142,6 @@ void Bend::layout()
                   path.moveTo(x, y);
                   path.cubicTo(x+dx/2, y, x2, y+dy/4, x2, y2);
                   bb |= path.boundingRect();
-
                   bb |= arrowUp.translated(x2, y2 + _spatium * .2).boundingRect();
 
                   int idx = (_points[pt+1].pitch + 12)/25;
@@ -145,7 +170,6 @@ void Bend::layout()
       bb.adjust(-_lw, -_lw, _lw, _lw);
       setbbox(bb);
       setPos(0.0, 0.0);
-      adjustReadPos();
       }
 
 //---------------------------------------------------------
@@ -154,43 +178,44 @@ void Bend::layout()
 
 void Bend::draw(QPainter* painter) const
       {
-      if (staff() && !staff()->isTabStaff())
-            return;
+      qreal _spatium = spatium();
+      qreal _lw = _lineWidth;
+
       QPen pen(curColor(), _lw, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
       painter->setPen(pen);
-      painter->setBrush(QBrush(Qt::black));
+      painter->setBrush(QBrush(curColor()));
 
-      qreal _spatium = spatium();
-      const TextStyle* st = &score()->textStyle(TEXT_STYLE_BENCH);
-      QFont f = st->fontPx(_spatium);
+      QFont f = font(_spatium * MScore::pixelRatio);
       painter->setFont(f);
+      QFontMetrics fm(f, MScore::paintDevice());
 
-      int n    = _points.size();
-      qreal x  = noteWidth;
+      qreal x  = noteWidth + _spatium * .2;
       qreal y  = -_spatium * .8;
       qreal x2, y2;
 
-      qreal aw = _spatium * .5;
+      qreal aw = score()->styleP(Sid::bendArrowWidth);
       QPolygonF arrowUp;
-      arrowUp << QPointF(0, 0) << QPointF(aw*.5, aw) << QPointF(-aw*.5, aw);
+      arrowUp << QPointF(0, 0) << QPointF(aw * .5, aw) << QPointF(-aw *.5, aw);
       QPolygonF arrowDown;
-      arrowDown << QPointF(0, 0) << QPointF(aw*.5, -aw) << QPointF(-aw*.5, -aw);
+      arrowDown << QPointF(0, 0) << QPointF(aw * .5, -aw) << QPointF(-aw *.5, -aw);
 
-      for (int pt = 0; pt < n; ++pt) {
-            if (pt == (n-1))
-                  break;
+      int n = _points.size();
+      for (int pt = 0; pt < n-1; ++pt) {
             int pitch = _points[pt].pitch;
             if (pt == 0 && pitch) {
                   y2 = -notePos.y() -_spatium * 2;
                   x2 = x;
                   painter->drawLine(QLineF(x, y, x2, y2));
 
-                  painter->setBrush(QBrush(Qt::black));
-                  painter->drawPolygon(arrowUp.translated(x2, y2 + _spatium * .2));
+                  painter->setBrush(curColor());
+                  painter->drawPolygon(arrowUp.translated(x2, y2));
 
                   int idx = (pitch + 12)/25;
                   const char* l = label[idx];
-                  painter->drawText(QRectF(x2, y2, .0, .0), Qt::AlignVCenter|Qt::TextDontClip, QString(l));
+                  QString s(l);
+                  qreal textWidth = fm.width(s);
+                  qreal textHeight = fm.height();
+                  painter->drawText(QRectF(x2 - textWidth / 2, y2 - textHeight / 2, .0, .0), Qt::AlignVCenter|Qt::TextDontClip, s);
 
                   y = y2;
                   }
@@ -214,8 +239,8 @@ void Bend::draw(QPainter* painter) const
                   painter->setBrush(Qt::NoBrush);
                   painter->drawPath(path);
 
-                  painter->setBrush(QBrush(Qt::black));
-                  painter->drawPolygon(arrowUp.translated(x2, y2 + _spatium * .2));
+                  painter->setBrush(curColor());
+                  painter->drawPolygon(arrowUp.translated(x2, y2 ));
 
                   int idx = (_points[pt+1].pitch + 12)/25;
                   const char* l = label[idx];
@@ -236,8 +261,8 @@ void Bend::draw(QPainter* painter) const
                   painter->setBrush(Qt::NoBrush);
                   painter->drawPath(path);
 
-                  painter->setBrush(QBrush(Qt::black));
-                  painter->drawPolygon(arrowDown.translated(x2, y2 - _spatium * .2));
+                  painter->setBrush(curColor());
+                  painter->drawPolygon(arrowDown.translated(x2, y2));
                   }
             x = x2;
             y = y2;
@@ -248,13 +273,16 @@ void Bend::draw(QPainter* painter) const
 //   write
 //---------------------------------------------------------
 
-void Bend::write(Xml& xml) const
+void Bend::write(XmlWriter& xml) const
       {
-      xml.stag("Bend");
-      foreach(const PitchValue& v, _points) {
+      xml.stag(this);
+      for (const PitchValue& v : _points) {
             xml.tagE(QString("point time=\"%1\" pitch=\"%2\" vibrato=\"%3\"")
                .arg(v.time).arg(v.pitch).arg(v.vibrato));
             }
+      writeStyledProperties(xml);
+      writeProperty(xml, Pid::PLAY);
+      Element::writeProperties(xml);
       xml.etag();
       }
 
@@ -265,7 +293,11 @@ void Bend::write(Xml& xml) const
 void Bend::read(XmlReader& e)
       {
       while (e.readNextStartElement()) {
-            if (e.name() == "point") {
+            const QStringRef& tag(e.name());
+
+            if (readStyledProperty(e, tag))
+                  ;
+            else if (tag == "point") {
                   PitchValue pv;
                   pv.time    = e.intAttribute("time");
                   pv.pitch   = e.intAttribute("pitch");
@@ -273,8 +305,77 @@ void Bend::read(XmlReader& e)
                   _points.append(pv);
                   e.readNext();
                   }
-            else
+            else if (tag == "play")
+                  setPlayBend(e.readBool());
+            else if (!Element::readProperties(e))
                   e.unknown();
             }
       }
+
+//---------------------------------------------------------
+//   getProperty
+//---------------------------------------------------------
+
+QVariant Bend::getProperty(Pid id) const
+      {
+      switch (id) {
+            case Pid::FONT_FACE:
+                  return _fontFace;
+            case Pid::FONT_SIZE:
+                  return _fontSize;
+            case Pid::FONT_STYLE:
+                  return int(_fontStyle);
+            case Pid::PLAY:
+                  return bool(playBend());
+            case Pid::LINE_WIDTH:
+                  return _lineWidth;
+            default:
+                  return Element::getProperty(id);
+            }
+      }
+
+//---------------------------------------------------------
+//   setProperty
+//---------------------------------------------------------
+
+bool Bend::setProperty(Pid id, const QVariant& v)
+      {
+      switch (id) {
+            case Pid::FONT_FACE:
+                  _fontFace = v.toString();
+                  break;
+            case Pid::FONT_SIZE:
+                  _fontSize = v.toReal();
+                  break;
+            case Pid::FONT_STYLE:
+                  _fontStyle = FontStyle(v.toInt());
+                  break;
+            case Pid::PLAY:
+                 setPlayBend(v.toBool());
+                 break;
+            case Pid::LINE_WIDTH:
+                  _lineWidth = v.toReal();
+                  break;
+            default:
+                  return Element::setProperty(id, v);
+            }
+      triggerLayout();
+      return true;
+      }
+
+//---------------------------------------------------------
+//   propertyDefault
+//---------------------------------------------------------
+
+QVariant Bend::propertyDefault(Pid id) const
+      {
+      switch (id) {
+            case Pid::PLAY:
+                  return true;
+            default:
+                  return Element::propertyDefault(id);
+            }
+      }
+
+}
 

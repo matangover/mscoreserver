@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: fifo.cpp 4414 2011-06-22 19:25:31Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -13,13 +12,15 @@
 
 #include "fifo.h"
 
+namespace Ms {
+
 //---------------------------------------------------------
 //   clear
 //---------------------------------------------------------
 
 void FifoBase::clear()
-	{
-	ridx    = 0;
+      {
+      ridx    = 0;
       widx    = 0;
       counter = 0;
       }
@@ -45,4 +46,6 @@ void FifoBase::pop()
       // q_atomic_decrement(&counter);
       --counter;
       }
+
+}
 

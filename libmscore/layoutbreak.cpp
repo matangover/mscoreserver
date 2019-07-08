@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: layoutbreak.cpp 5632 2012-05-15 16:36:57Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -14,33 +13,46 @@
 #include "layoutbreak.h"
 #include "score.h"
 #include "mscore.h"
+#include "xml.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   LayoutBreak
 //---------------------------------------------------------
 
 LayoutBreak::LayoutBreak(Score* score)
-   : Element(score)
+   : Element(score, ElementFlag::SYSTEM | ElementFlag::HAS_TAG)
       {
-      _subtype             = LayoutBreakType(propertyDefault(P_LAYOUT_BREAK).toInt());
-      _pause               = score->styleD(ST_SectionPause);
+      _layoutBreakType     = Type(propertyDefault(Pid::LAYOUT_BREAK).toInt());
+      _pause               = score->styleD(Sid::SectionPause);
       _startWithLongNames  = true;
       _startWithMeasureOne = true;
       lw                   = spatium() * 0.3;
-      setFlag(ELEMENT_HAS_TAG, true);
+      }
+
+LayoutBreak::LayoutBreak(const LayoutBreak& lb)
+   : Element(lb)
+      {
+      _layoutBreakType     = lb._layoutBreakType;
+      lw                   = lb.lw;
+      _pause               = lb._pause;
+      _startWithLongNames  = lb._startWithLongNames;
+      _startWithMeasureOne = lb._startWithMeasureOne;
+      layout0();
       }
 
 //---------------------------------------------------------
 //   write
 //---------------------------------------------------------
 
-void LayoutBreak::write(Xml& xml) const
+void LayoutBreak::write(XmlWriter& xml) const
       {
-      xml.stag(name());
+      xml.stag(this);
       Element::writeProperties(xml);
 
-      writeProperty(xml, P_LAYOUT_BREAK);
-      writeProperty(xml, P_PAUSE);
+      writeProperty(xml, Pid::LAYOUT_BREAK);
+      writeProperty(xml, Pid::PAUSE);
 
       if (!_startWithLongNames)
             xml.tag("startWithLongNames", _startWithLongNames);
@@ -58,7 +70,7 @@ void LayoutBreak::read(XmlReader& e)
       while (e.readNextStartElement()) {
             const QStringRef& tag(e.name());
             if (tag == "subtype")
-                  setProperty(P_LAYOUT_BREAK, ::getProperty(P_LAYOUT_BREAK, e));
+                  readProperty(e, Pid::LAYOUT_BREAK);
             else if (tag == "pause")
                   _pause = e.readDouble();
             else if (tag == "startWithLongNames")
@@ -79,11 +91,24 @@ void LayoutBreak::draw(QPainter* painter) const
       {
       if (score()->printing() || !score()->showUnprintable())
             return;
-      painter->setPen(QPen(selected() ? MScore::selectColor[0] : MScore::layoutBreakColor,
-         lw, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
 
+      QPainterPathStroker stroker;
+      stroker.setWidth(lw/2);
+      stroker.setJoinStyle(Qt::MiterJoin);
+      stroker.setCapStyle(Qt::SquareCap);
+
+      QVector<qreal> dashes;
+      dashes.append(1);
+      dashes.append(3);
+      stroker.setDashPattern(dashes);
+      QPainterPath stroke = stroker.createStroke(path);
+
+      painter->fillPath(stroke, selected() ? MScore::selectColor[0] : MScore::layoutBreakColor);
+
+      painter->setPen(QPen(selected() ? MScore::selectColor[0] : MScore::layoutBreakColor,
+         lw, Qt::SolidLine, Qt::SquareCap, Qt::MiterJoin));
       painter->setBrush(Qt::NoBrush);
-      painter->drawPath(path);
+      painter->drawPath(path2);
       }
 
 //---------------------------------------------------------
@@ -94,47 +119,65 @@ void LayoutBreak::layout0()
       {
       qreal _spatium = spatium();
       path      = QPainterPath();
-      qreal h  = _spatium * 4;
+      path2      = QPainterPath();
+      qreal h  = _spatium * 2.5;
       qreal w  = _spatium * 2.5;
-      qreal w1 = w * .6;
 
-      switch(subtype()) {
-            case LAYOUT_BREAK_LINE:
-                  path.lineTo(w, 0.0);
-                  path.lineTo(w, h);
-                  path.lineTo(0.0, h);
-                  path.lineTo(0.0, 0.0);
+      QRectF rect(0.0, 0.0, w, h);
+      path.addRect(rect);
 
-                  path.moveTo(w * .8, w * .7);
-                  path.lineTo(w * .8, w);
-                  path.lineTo(w * .2, w);
+      switch (layoutBreakType()) {
+            case Type::LINE:
+                  path2.moveTo(w * .8, h * .3);
+                  path2.lineTo(w * .8, h * .6);
+                  path2.lineTo(w * .3, h * .6);
 
-                  path.moveTo(w * .4, w * .8);
-                  path.lineTo(w * .2, w);
-                  path.lineTo(w * .4, w * 1.2);
+                  path2.moveTo(w * .4, h * .5);
+                  path2.lineTo(w * .25, h * .6);
+                  path2.lineTo(w * .4, h * .7);
+                  path2.lineTo(w * .4, h * .5);
                   break;
 
-            case LAYOUT_BREAK_PAGE:
-                  path.lineTo(w, 0.0);
-                  path.lineTo(w, h-w1);
-                  path.lineTo(w1, h-w1);
-                  path.lineTo(w1, h);
-                  path.lineTo(0.0, h);
-                  path.lineTo(0.0, 0.0);
-                  path.moveTo(w, h-w1);
-                  path.lineTo(w1, h);
+            case Type::PAGE:
+                  path2.moveTo(w*.25, h*.2);
+                  path2.lineTo(w*.60, h*.2);
+                  path2.lineTo(w*.75, h*.35);
+                  path2.lineTo(w*.75, h*.8);
+                  path2.lineTo(w*.25, h*.8);
+                  path2.lineTo(w*.25, h*.2);
+
+                  path2.moveTo(w*.55, h*.21); // 0.01 to avoid overlap
+                  path2.lineTo(w*.55, h*.40);
+                  path2.lineTo(w*.74, h*.40);
                   break;
 
-            case LAYOUT_BREAK_SECTION:
-                  path.lineTo(w, 0.0);
-                  path.lineTo(w,  h);
-                  path.lineTo(0.0,  h);
-                  path.moveTo(w-_spatium * .8,  0.0);
-                  path.lineTo(w-_spatium * .8,  h);
+            case Type::SECTION:
+                  path2.moveTo(w*.25, h*.2);
+                  path2.lineTo(w*.75, h*.2);
+                  path2.lineTo(w*.75, h*.8);
+                  path2.lineTo(w*.25, h*.8);
+
+                  path2.moveTo(w*.55, h*.21); // 0.01 to avoid overlap
+                  path2.lineTo(w*.55, h*.79);
+                  break;
+
+            case Type::NOBREAK:
+                  path2.moveTo(w * .1,  h * .5);
+                  path2.lineTo(w * .9,  h * .5);
+
+                  path2.moveTo(w * .7, h * .3);
+                  path2.lineTo(w * .5, h * .5);
+                  path2.lineTo(w * .7, h * .7);
+                  path2.lineTo(w * .7, h * .3);
+
+                  path2.moveTo(w * .3,  h * .3);
+                  path2.lineTo(w * .5,  h * .5);
+                  path2.lineTo(w * .3,  h * .7);
+                  path2.lineTo(w * .3,  h * .3);
                   break;
 
             default:
-                  qDebug("unknown layout break symbol\n");
+                  qDebug("unknown layout break symbol");
                   break;
             }
       QRectF bb(0, 0, w, h);
@@ -143,12 +186,12 @@ void LayoutBreak::layout0()
       }
 
 //---------------------------------------------------------
-//   setSubtype
+//   setLayoutBreakType
 //---------------------------------------------------------
 
-void LayoutBreak::setSubtype(LayoutBreakType val)
+void LayoutBreak::setLayoutBreakType(Type val)
       {
-      _subtype = val;
+      _layoutBreakType = val;
       layout0();
       }
 
@@ -166,18 +209,19 @@ void LayoutBreak::spatiumChanged(qreal, qreal)
 //   acceptDrop
 //---------------------------------------------------------
 
-bool LayoutBreak::acceptDrop(MuseScoreView*, const QPointF&, Element* e) const
+bool LayoutBreak::acceptDrop(EditData& data) const
       {
-      return e->type() == LAYOUT_BREAK && static_cast<LayoutBreak*>(e)->subtype() != subtype();
+      return data.dropElement->type() == ElementType::LAYOUT_BREAK
+         && toLayoutBreak(data.dropElement)->layoutBreakType() != layoutBreakType();
       }
 
 //---------------------------------------------------------
 //   drop
 //---------------------------------------------------------
 
-Element* LayoutBreak::drop(const DropData& data)
+Element* LayoutBreak::drop(EditData& data)
       {
-      Element* e = data.element;
+      Element* e = data.dropElement;
       score()->undoChangeElement(this, e);
       return e;
       }
@@ -186,12 +230,12 @@ Element* LayoutBreak::drop(const DropData& data)
 //   getProperty
 //---------------------------------------------------------
 
-QVariant LayoutBreak::getProperty(P_ID propertyId) const
+QVariant LayoutBreak::getProperty(Pid propertyId) const
       {
       switch(propertyId) {
-            case P_LAYOUT_BREAK:
-                  return _subtype;
-            case P_PAUSE:
+            case Pid::LAYOUT_BREAK:
+                  return int(_layoutBreakType);
+            case Pid::PAUSE:
                   return _pause;
             default:
                   return Element::getProperty(propertyId);
@@ -202,13 +246,13 @@ QVariant LayoutBreak::getProperty(P_ID propertyId) const
 //   setProperty
 //---------------------------------------------------------
 
-bool LayoutBreak::setProperty(P_ID propertyId, const QVariant& v)
+bool LayoutBreak::setProperty(Pid propertyId, const QVariant& v)
       {
       switch(propertyId) {
-            case P_LAYOUT_BREAK:
-                  setSubtype(LayoutBreakType(v.toInt()));
+            case Pid::LAYOUT_BREAK:
+                  setLayoutBreakType(Type(v.toInt()));
                   break;
-            case P_PAUSE:
+            case Pid::PAUSE:
                   setPause(v.toDouble());
                   break;
             default:
@@ -216,7 +260,7 @@ bool LayoutBreak::setProperty(P_ID propertyId, const QVariant& v)
                         return false;
                   break;
             }
-      score()->setLayoutAll(true);
+      score()->setLayoutAll();
       setGenerated(false);
       return true;
       }
@@ -225,15 +269,27 @@ bool LayoutBreak::setProperty(P_ID propertyId, const QVariant& v)
 //   propertyDefault
 //---------------------------------------------------------
 
-QVariant LayoutBreak::propertyDefault(P_ID id) const
+QVariant LayoutBreak::propertyDefault(Pid id) const
       {
       switch(id) {
-            case P_LAYOUT_BREAK:
+            case Pid::LAYOUT_BREAK:
                   return QVariant(); // LAYOUT_BREAK_LINE;
-            case P_PAUSE:
-                  return 0.0; // score()->styleD(ST_SectionPause);
+            case Pid::PAUSE:
+                  return score()->styleD(Sid::SectionPause);
             default:
                   return Element::propertyDefault(id);
             }
       }
+
+//---------------------------------------------------------
+//   propertyId
+//---------------------------------------------------------
+
+Pid LayoutBreak::propertyId(const QStringRef& name) const
+      {
+      if (name == propertyName(Pid::LAYOUT_BREAK))
+            return Pid::LAYOUT_BREAK;
+      return Element::propertyId(name);
+      }
+}
 

@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: bracket.h 5149 2011-12-29 08:38:43Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -15,71 +14,94 @@
 #define __BRACKET_H__
 
 #include "element.h"
-#include "mscore.h"
+#include "bracketItem.h"
+
+namespace Ms {
 
 class MuseScoreView;
 class System;
-class QPainter;
+enum class BracketType : signed char;
 
 //---------------------------------------------------------
 //   @@ Bracket
 //---------------------------------------------------------
 
-class Bracket : public Element {
-      Q_OBJECT
-
-      BracketType _subtype;
-
+class Bracket final : public Element {
+      BracketItem* _bi;
+      qreal ay1;
       qreal h2;
 
-      int _column;
-      int _span;
       int _firstStaff;
       int _lastStaff;
 
       QPainterPath path;
-      qreal yoff;
+      SymId _braceSymbol;
+      Shape _shape;
+
+      // horizontal scaling factor for brace symbol. Cannot be equal to magY or depend on h
+      // because layout needs width of brace before knowing height of system...
+      qreal _magx;
+      Measure* _measure = nullptr;
 
    public:
       Bracket(Score*);
-      virtual Bracket* clone() const   { return new Bracket(*this); }
+      virtual ~Bracket();
+      virtual Bracket* clone() const override   { return new Bracket(*this); }
+      virtual ElementType type() const override { return ElementType::BRACKET;  }
 
-      virtual ElementType type() const { return BRACKET;  }
-      BracketType subtype() const      { return _subtype; }
-      void setSubtype(BracketType t)   { _subtype = t;    }
+      void setBracketItem(BracketItem* i)       { _bi = i; }
+      BracketItem* bracketItem() const          { return _bi;          }
 
-      int firstStaff() const           { return _firstStaff; }
-      void setFirstStaff(int val)      { _firstStaff = val;  }
+      BracketType bracketType() const           { return _bi->bracketType(); }
+      static const char* bracketTypeName(BracketType type);
 
-      int lastStaff() const            { return _lastStaff; }
-      void setLastStaff(int val)       { _lastStaff = val;  }
+      int firstStaff() const                    { return _firstStaff; }
+      int lastStaff() const                     { return _lastStaff; }
+      void setStaffSpan(int a, int b);
 
-      int level() const                { return _column;           }
-      void setLevel(int v)             { _column = v;              }
-      int span() const                 { return _span;             }
-      void setSpan(int v)              { _span = v;                }
-      System* system() const           { return (System*)parent(); }
+      SymId braceSymbol() const                 { return _braceSymbol; }
+      int column() const                        { return _bi->column();  }
+      int span() const                          { return _bi->bracketSpan();    }
+      qreal magx() const                        { return _magx;                 }
 
-      virtual void setHeight(qreal);
-      virtual qreal width() const;
+      System* system() const                    { return (System*)parent(); }
 
-      virtual void draw(QPainter*) const;
-      virtual void write(Xml& xml) const;
-      virtual void read(XmlReader&);
-      virtual void layout();
+      Measure* measure() const                  { return _measure; }
+      void setMeasure(Measure* measure)         { _measure = measure; }
 
-      virtual bool isEditable() const { return true; }
-      virtual void startEdit(MuseScoreView*, const QPointF&);
-      virtual bool edit(MuseScoreView*, int, int, Qt::KeyboardModifiers, const QString&);
-      virtual void endEdit();
-      virtual void editDrag(const EditData&);
-      virtual void endEditDrag();
-      virtual void updateGrips(int*, QRectF*) const;
-      virtual QPointF gripAnchor(int grip) const;
+      virtual void setHeight(qreal) override;
+      virtual qreal width() const override;
 
-      virtual bool acceptDrop(MuseScoreView*, const QPointF&, Element*) const;
-      virtual Element* drop(const DropData&);
+      virtual Shape shape() const override { return _shape; }
+
+      virtual void draw(QPainter*) const override;
+      virtual void layout() override;
+
+      virtual void write(XmlWriter& xml) const override;
+      virtual void read(XmlReader&) override;
+
+      virtual bool isEditable() const override { return true; }
+      virtual void startEdit(EditData&) override;
+      virtual bool edit(EditData&) override;
+      virtual void endEdit(EditData&) override;
+      virtual void editDrag(EditData&) override;
+      virtual void endEditDrag(EditData&) override;
+      virtual void updateGrips(EditData&) const override;
+
+      virtual bool acceptDrop(EditData&) const override;
+      virtual Element* drop(EditData&) override;
+
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid) const override;
+
+      void undoChangeProperty(Pid id, const QVariant& v, PropertyFlags ps) override;
+      using ScoreElement::undoChangeProperty;
+
+      virtual void setSelected(bool f) override;
       };
 
+
+}     // namespace Ms
 #endif
 

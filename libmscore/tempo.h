@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: tempo.h 5574 2012-04-23 18:54:54Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -14,16 +13,21 @@
 #ifndef __AL_TEMPO_H__
 #define __AL_TEMPO_H__
 
-class Xml;
+namespace Ms {
 
-enum TempoType { TEMPO_INVALID, TEMPO_FIX, TEMPO_RAMP };
+class XmlWriter;
+
+enum class TempoType : char { INVALID = 0x0, PAUSE = 0x1, FIX = 0x2, RAMP = 0x4};
+
+typedef QFlags<TempoType> TempoTypes;
+Q_DECLARE_OPERATORS_FOR_FLAGS(TempoTypes);
 
 //---------------------------------------------------------
 //   Tempo Event
 //---------------------------------------------------------
 
 struct TEvent {
-      TempoType type;
+      TempoTypes type;
       qreal tempo;     // beats per second
       qreal pause;     // pause in seconds
       qreal time;      // precomputed time for tick in sec
@@ -31,17 +35,12 @@ struct TEvent {
       TEvent();
       TEvent(const TEvent& e);
       TEvent(qreal bps, qreal seconds, TempoType t);
-      bool valid() const { return type != TEMPO_INVALID; }
+      bool valid() const;
       };
 
 //---------------------------------------------------------
 //   Tempomap
 //---------------------------------------------------------
-
-typedef std::map<int, TEvent>::iterator iTEvent;
-typedef std::map<int, TEvent>::const_iterator ciTEvent;
-typedef std::map<int, TEvent>::reverse_iterator riTEvent;
-typedef std::map<int, TEvent>::const_reverse_iterator criTEvent;
 
 class TempoMap : public std::map<int, TEvent> {
       int _tempoSN;           // serial no to track tempo changes
@@ -54,6 +53,7 @@ class TempoMap : public std::map<int, TEvent> {
    public:
       TempoMap();
       void clear();
+      void clearRange(int tick1, int tick2);
 
       void dump() const;
 
@@ -74,4 +74,5 @@ class TempoMap : public std::map<int, TEvent> {
       qreal relTempo() const { return _relTempo; }
       };
 
+}     // namespace Ms
 #endif

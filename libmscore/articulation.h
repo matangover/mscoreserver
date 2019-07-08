@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: articulation.h 5500 2012-03-28 16:28:26Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -14,104 +13,136 @@
 #ifndef __ARTICULATION_H__
 #define __ARTICULATION_H__
 
+#include "element.h"
 #include "mscore.h"
-#include "symbol.h"
-#include "sym.h"
 
-class QPainter;
+namespace Ms {
+
 class ChordRest;
+class Segment;
+class Measure;
+class System;
+class Page;
+
+enum class SymId;
 
 //---------------------------------------------------------
 //   ArticulationInfo
 //    gives infos about note attributes
 //---------------------------------------------------------
 
-enum ArticulationAnchor {
-      A_TOP_STAFF,
-      A_BOTTOM_STAFF,
-      A_CHORD,          // anchor depends on chord direction
-      A_TOP_CHORD,      // attribute is alway placed at top of chord
-      A_BOTTOM_CHORD,   // attribute is placed at bottom of chord
+enum class ArticulationAnchor : char {
+      TOP_STAFF,      // anchor is always placed at top of staff
+      BOTTOM_STAFF,   // anchor is always placed at bottom of staff
+      CHORD,          // anchor depends on chord direction, away from stem
+      TOP_CHORD,      // attribute is always placed at top of chord
+      BOTTOM_CHORD,   // attribute is placed at bottom of chord
       };
 
 // flags:
-enum { ARTICULATION_SHOW_IN_PITCHED_STAFF = 1, ARTICULATION_SHOW_IN_TABLATURE = 2 };
+enum class ArticulationShowIn : char { PITCHED_STAFF = 1, TABLATURE = 2 };
 
-struct ArticulationInfo {
-      SymId upSym;
-      SymId downSym;
-      QString name;
-      QString description;    // translated name
-      qreal timeStretch;      // for fermata
-      int flags;
-      };
+constexpr ArticulationShowIn operator| (ArticulationShowIn a1, ArticulationShowIn a2) {
+      return static_cast<ArticulationShowIn>(static_cast<unsigned char>(a1) | static_cast<unsigned char>(a2));
+      }
+constexpr bool operator& (ArticulationShowIn a1, ArticulationShowIn a2) {
+      return static_cast<unsigned char>(a1) & static_cast<unsigned char>(a2);
+      }
 
 //---------------------------------------------------------
 //   @@ Articulation
 ///    articulation marks
 //---------------------------------------------------------
 
-class Articulation : public Element {
-      Q_OBJECT
-
-      ArticulationType _subtype;
-      MScore::Direction _direction;
+class Articulation final : public Element {
+      SymId _symId;
+      Direction _direction;
       QString _channelName;
+
       ArticulationAnchor _anchor;
+
       bool _up;
+      MScore::OrnamentStyle _ornamentStyle;     // for use in ornaments such as trill
+      bool _playArticulation;
 
       virtual void draw(QPainter*) const;
 
+      enum class AnchorGroup {
+            ARTICULATION,
+            LUTE_FINGERING,
+            OTHER
+            };
+      static AnchorGroup anchorGroup(SymId);
+
    public:
       Articulation(Score*);
-      Articulation &operator=(const Articulation&);
+      Articulation(SymId, Score*);
+      Articulation &operator=(const Articulation&) = delete;
 
-      virtual Articulation* clone() const   { return new Articulation(*this); }
-      virtual ElementType type() const      { return ARTICULATION; }
+      virtual Articulation* clone() const override   { return new Articulation(*this); }
+      virtual ElementType type() const override    { return ElementType::ARTICULATION; }
 
-      void setSubtype(ArticulationType);
-      ArticulationType subtype() const      { return _subtype; }
-      void setSubtype(const QString& s);
-      QString subtypeName() const;
+      virtual qreal mag() const override;
 
-      virtual void layout();
+      SymId symId() const                       { return _symId; }
+      void setSymId(SymId id);
+      virtual int subtype() const override;
+      QString userName() const;
+      const char* articulationName() const;  // type-name of articulation; used for midi rendering
+      static const char* symId2ArticulationName(SymId symId);
 
-      virtual void read(XmlReader&);
-      virtual void write(Xml& xml) const;
+      virtual void layout() override;
+      bool layoutCloseToNote() const;
 
-      virtual void reset();
-      virtual QLineF dragAnchor() const;
+      virtual void read(XmlReader&) override;
+      virtual void write(XmlWriter& xml) const override;
+      virtual bool readProperties(XmlReader&) override;
 
-      virtual QVariant getProperty(P_ID propertyId) const;
-      virtual bool setProperty(P_ID propertyId, const QVariant&);
+      virtual QLineF dragAnchor() const override;
 
-      ArticulationType articulationType() const;
-      QString subtypeUserName() const;
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid) const override;
+      virtual void resetProperty(Pid id) override;
+      Sid getPropertyStyle(Pid id) const override;
 
-      virtual QPointF pagePos() const;      ///< position in page coordinates
-      virtual QPointF canvasPos() const;
+      virtual Pid propertyId(const QStringRef& xmlName) const override;
 
       bool up() const                       { return _up; }
-      void setUp(bool val)                  { _up = val;  }
-      void setDirection(MScore::Direction d);
-      MScore::Direction direction() const   { return _direction; }
+      void setUp(bool val);
+      void setDirection(Direction d)        { _direction = d;    }
+      Direction direction() const           { return _direction; }
 
       ChordRest* chordRest() const;
-
-      static ArticulationInfo articulationList[];
+      Segment* segment() const;
+      Measure* measure() const;
+      System* system() const;
+      Page* page() const;
 
       ArticulationAnchor anchor() const     { return _anchor;      }
       void setAnchor(ArticulationAnchor v)  { _anchor = v;         }
 
+      MScore::OrnamentStyle ornamentStyle() const { return _ornamentStyle; }
+      void setOrnamentStyle(MScore::OrnamentStyle val) { _ornamentStyle = val; }
+
+      bool playArticulation() const { return _playArticulation;}
+      void setPlayArticulation(bool val) { _playArticulation = val; }
+
       QString channelName() const           { return _channelName; }
       void setChannelName(const QString& s) { _channelName = s;    }
 
-      const ArticulationInfo* articulationInfo() const { return &articulationList[articulationType()]; }
+      QString accessibleInfo() const override;
 
-      qreal timeStretch() const;
+      bool isDouble() const;
+      bool isTenuto() const;
+      bool isStaccato() const;
+      bool isAccent() const;
+      bool isMarcato() const;
+      bool isLuteFingering() const;
 
-      static QString idx2name(int idx);
+      void doAutoplace();
       };
 
+}     // namespace Ms
 #endif
 

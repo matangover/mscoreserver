@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: excerpt.cpp 5149 2011-12-29 08:38:43Z wschweer $
 //
 //  Copyright (C) 2009-2012 Werner Schweer
 //
@@ -13,11 +12,11 @@
 
 #include "elementmap.h"
 #include "tupletmap.h"
-#include "slurmap.h"
 #include "tiemap.h"
-#include "spannermap.h"
 #include "slur.h"
 #include "chordrest.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   findNew
@@ -32,32 +31,5 @@ Tuplet* TupletMap::findNew(Tuplet* o)
       return 0;
       }
 
-//---------------------------------------------------------
-//   findNew
-//---------------------------------------------------------
-
-Slur* SlurMap::findNew(Slur* o)
-      {
-      foreach(const Slur2& s2, map) {
-            if (s2.o == o)
-                  return s2.n;
-            }
-      return 0;
-      }
-
-//---------------------------------------------------------
-//   check
-//---------------------------------------------------------
-
-void SlurMap::check()
-      {
-      foreach(const Slur2& s2, map) {
-            Slur* slur = s2.n;
-            if (slur->endElement() == 0) {
-                  qDebug("slur end element missing %p new %p", s2.o, s2.n);
-                  static_cast<ChordRest*>(slur->startElement())->removeSlurFor(slur);
-                  delete slur;
-                  }
-            }
-      }
+}
 

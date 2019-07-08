@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: system.h 5656 2012-05-21 15:36:47Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -21,6 +20,10 @@
 
 #include "element.h"
 #include "spatium.h"
+#include "symbol.h"
+#include "skyline.h"
+
+namespace Ms {
 
 class Staff;
 class StaffLines;
@@ -38,150 +41,147 @@ class BarLine;
 
 //---------------------------------------------------------
 //   SysStaff
-///  One staff of a System.
+///  One staff in a System.
 //---------------------------------------------------------
 
 class SysStaff {
-      QRectF _bbox;           ///< Bbox of StaffLines.
-      qreal _distanceUp;      ///< distance to previous staff
-      qreal _distanceDown;    ///< distance to next staff
-      bool _show;             ///< derived from Staff or false if empty
-                              ///< staff is hidden
+      QRectF _bbox;                 // Bbox of StaffLines.
+      Skyline _skyline;
+      qreal _yOff { 0    };         // offset of top staff line within bbox
+      bool _show  { true };         // derived from Staff or false if empty
+                                    // staff is hidden
    public:
-      int idx;
+      int idx     { 0    };
       QList<InstrumentName*> instrumentNames;
 
       const QRectF& bbox() const    { return _bbox; }
       QRectF& bbox()                { return _bbox; }
-      QRectF& rbb()                 { return _bbox; }
-      qreal y() const               { return _bbox.y(); }
-      qreal right() const           { return _bbox.right(); }
       void setbbox(const QRectF& r) { _bbox = r; }
-
-      qreal distanceUp() const      { return _distanceUp;   }
-      void setDistanceUp(qreal v)   { _distanceUp = v;      }
-      qreal distanceDown() const    { return _distanceDown; }
-      void setDistanceDown(qreal v) { _distanceDown = v;    }
+      qreal y() const               { return _bbox.y() + _yOff; }
+      void setYOff(qreal offset)    { _yOff = offset; }
 
       bool show() const             { return _show; }
       void setShow(bool v)          { _show = v; }
 
-      SysStaff();
+      const Skyline& skyline() const { return _skyline; }
+      Skyline& skyline()             { return _skyline; }
+
+      SysStaff() {}
       ~SysStaff();
       };
 
 //---------------------------------------------------------
-//   @@ System
-///  One row of measures for all instruments;
-///  a complete piece of the timeline.
+//   System
+///    One row of measures for all instruments;
+///    a complete piece of the timeline.
 //---------------------------------------------------------
 
-class System : public Element {
-      Q_OBJECT
+class System final : public Element {
+      SystemDivider* _systemDividerLeft    { 0 };     // to the next system
+      SystemDivider* _systemDividerRight   { 0 };
 
-      QList<MeasureBase*> ml;
+      std::vector<MeasureBase*> ml;
       QList<SysStaff*> _staves;
       QList<Bracket*> _brackets;
-
-      BarLine* _barLine;      ///< Left hand bar, connects staves in system.
-      qreal _leftMargin;      ///< left margin for instrument name, brackets etc.
-      bool _pageBreak;
-      bool _firstSystem;      ///< used to decide between long and short instrument
-                              ///< names; set by score()->doLayout()
-      bool _vbox;             ///< contains only one VBox in ml
-      bool _sameLine;
-      bool _addStretch;
-
       QList<SpannerSegment*> _spannerSegments;
 
-      qreal _stretchDistance;
-      qreal _distance;
+      qreal _leftMargin              { 0.0    };     ///< left margin for instrument name, brackets etc.
+      mutable bool fixedDownDistance { false  };
+      qreal _distance;                               // temp. variable used during layout
 
-      void setDistanceUp(int n, qreal v)   { _staves[n]->setDistanceUp(v); }
-      void setDistanceDown(int n, qreal v) { _staves[n]->setDistanceDown(v); }
+      SysStaff* firstVisibleSysStaff() const;
+      SysStaff* lastVisibleSysStaff() const;
 
-   public:
+      int getBracketsColumnsCount();
+      void setBracketsXPosition(const qreal xOffset);
+      Bracket* createBracket(Ms::BracketItem* bi, int column, int staffIdx, QList<Ms::Bracket *>& bl, Measure* measure);
+
+public:
       System(Score*);
       ~System();
-      virtual System* clone() const    { return new System(*this); }
-      virtual ElementType type() const { return SYSTEM; }
+      virtual System* clone() const override      { return new System(*this); }
+      virtual ElementType type() const override   { return ElementType::SYSTEM; }
 
-      virtual void add(Element*);
-      virtual void remove(Element*);
-      virtual void change(Element* o, Element* n);
-      virtual void write(Xml&) const;
-      virtual void read(XmlReader&);
+      virtual void add(Element*) override;
+      virtual void remove(Element*) override;
+      virtual void change(Element* o, Element* n) override;
+      virtual void write(XmlWriter&) const override;
+      virtual void read(XmlReader&) override;
 
-      virtual void scanElements(void* data, void (*func)(void*, Element*), bool all=true);
+      virtual void scanElements(void* data, void (*func)(void*, Element*), bool all=true) override;
 
-      Page* page() const                 { return (Page*)parent(); }
+      void appendMeasure(MeasureBase*);
+      void removeMeasure(MeasureBase*);
+      void removeLastMeasure();
 
-      virtual void layout(qreal xoffset);
+      Page* page() const                    { return (Page*)parent(); }
+
+      void layoutSystem(qreal);
+
+      void addBrackets(Measure* measure);
+
       void layout2();                     ///< Called after Measure layout.
       void clear();                       ///< Clear measure list.
 
       QRectF bboxStaff(int staff) const      { return _staves[staff]->bbox(); }
       QList<SysStaff*>* staves()             { return &_staves;   }
       const QList<SysStaff*>* staves() const { return &_staves;   }
-      qreal staffY(int staffIdx) const;
-#ifdef NDEBUG
+      qreal staffYpage(int staffIdx) const;
+      qreal staffCanvasYpage(int staffIdx) const;
       SysStaff* staff(int staffIdx) const    { return _staves[staffIdx]; }
-#else
-      SysStaff* staff(int staffIdx) const    {
-            if (staffIdx >= _staves.size()) {
-                  qDebug("System::staff(): bad index %d", staffIdx);
-                  staffIdx = _staves.size() - 1;
-                  abort();
-                  }
-            return _staves[staffIdx];
-            }
-#endif
 
-      qreal distanceUp(int idx) const        { return _staves[idx]->distanceUp(); }
-      qreal distanceDown(int idx) const      { return _staves[idx]->distanceDown(); }
-      bool pageBreak() const                 { return _pageBreak; }
-      void setPageBreak(bool val)            { _pageBreak = val; }
+      bool pageBreak() const;
 
       SysStaff* insertStaff(int);
       void removeStaff(int);
 
-      BarLine* barLine() const               { return _barLine; }
       int y2staff(qreal y) const;
-      void setInstrumentNames(bool longName);
-      int snap(int tick, const QPointF p) const;
-      int snapNote(int tick, const QPointF p, int staff) const;
+      void setInstrumentNames(bool longName, Fraction tick = {0,1});
+      Fraction snap(const Fraction& tick, const QPointF p) const;
+      Fraction snapNote(const Fraction& tick, const QPointF p, int staff) const;
 
-      QList<MeasureBase*>& measures()        { return ml; }
+      const std::vector<MeasureBase*>& measures() const { return ml; }
+
       MeasureBase* measure(int idx)          { return ml[idx]; }
       Measure* firstMeasure() const;
       Measure* lastMeasure() const;
+      Fraction endTick() const;
 
-      MeasureBase* prevMeasure(const MeasureBase*) const;
       MeasureBase* nextMeasure(const MeasureBase*) const;
 
       qreal leftMargin() const    { return _leftMargin; }
-      void setFirstSystem(bool v) { _firstSystem = v;   }
-      bool isVbox() const         { return _vbox;       }
-      VBox* vbox() const          { return (VBox*)ml[0];       }
-      void setVbox(bool v)        { _vbox = v;          }
+      Box* vbox() const;
 
-      void layoutLyrics(Lyrics*, Segment*, int staffIdx);
+      const QList<Bracket*>& brackets() const { return _brackets; }
 
-      bool addStretch() const     { return _addStretch; }
-      void setAddStretch(bool v)  { _addStretch = v; }
-      bool sameLine() const       { return _sameLine;   }
-      void setSameLine(bool v)    { _sameLine = v; }
+      QList<SpannerSegment*>& spannerSegments()             { return _spannerSegments; }
+      const QList<SpannerSegment*>& spannerSegments() const { return _spannerSegments; }
 
-      qreal stretchDistance() const      { return _stretchDistance; }
-      void setStretchDistance(qreal val) { _stretchDistance = val;  }
-      void addStretchDistance(qreal val) { _stretchDistance += val;  }
-      qreal distance() const             { return _distance; }
-      void setDistance(qreal val)        { _distance = val;  }
-      QList<Bracket*>& brackets()        { return _brackets; }
+      SystemDivider* systemDividerLeft() const  { return _systemDividerLeft; }
+      SystemDivider* systemDividerRight() const { return _systemDividerRight; }
+
+      virtual Element* nextSegmentElement() override;
+      virtual Element* prevSegmentElement() override;
+
+      qreal minDistance(System*) const;
+      qreal topDistance(int staffIdx, const SkylineLine&) const;
+      qreal bottomDistance(int staffIdx, const SkylineLine&) const;
+      qreal minTop() const;
+      qreal minBottom() const;
+      qreal spacerDistance(bool up) const;
+
+      void moveBracket(int staffIdx, int srcCol, int dstCol);
+      bool hasFixedDownDistance() const { return fixedDownDistance; }
+      int firstVisibleStaff() const;
+      int nextVisibleStaff(int) const;
+      qreal distance() const { return _distance; }
+      void setDistance(qreal d) { _distance = d; }
       };
 
 typedef QList<System*>::iterator iSystem;
 typedef QList<System*>::const_iterator ciSystem;
 
+
+}     // namespace Ms
 #endif
 

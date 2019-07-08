@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: keysig.h 5149 2011-12-29 08:38:43Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -17,83 +16,72 @@
 #include "key.h"
 #include "element.h"
 
+namespace Ms {
+
 class Sym;
 class Segment;
-class QPainter;
-
-//---------------------------------------------------------
-//   KeySym
-//    position of one symbol in KeySig
-//---------------------------------------------------------
-
-struct KeySym {
-      int sym;
-      QPointF spos;
-      QPointF pos;
-      };
 
 //---------------------------------------------------------------------------------------
 //   @@ KeySig
-///   The KeySig class represents a Key Signature on a staff
+///    The KeySig class represents a Key Signature on a staff
 //
-//    @P showCourtesy bool show courtesy key signature for this sig if appropriate
-//    @P showNaturals bool
+//   @P showCourtesy  bool  show courtesy key signature for this sig if appropriate
 //---------------------------------------------------------------------------------------
 
-class KeySig : public Element {
-      Q_OBJECT
-      Q_PROPERTY(bool showCourtesy READ showCourtesy   WRITE undoSetShowCourtesy)
-      Q_PROPERTY(bool showNaturals READ showNaturals   WRITE undoSetShowNaturals)
-
-	bool	_showCourtesy;
-	bool	_showNaturals;
-      QList<KeySym*> keySymbols;
+class KeySig final : public Element {
+      bool _showCourtesy;
+      bool _hideNaturals;     // used in layout to override score style (needed for the Continuous panel)
       KeySigEvent _sig;
-      void addLayout(int sym, qreal x, int y);
+      void addLayout(SymId sym, qreal x, int y);
 
    public:
       KeySig(Score* = 0);
       KeySig(const KeySig&);
-      virtual KeySig* clone() const { return new KeySig(*this); }
-      virtual void draw(QPainter*) const;
-      virtual ElementType type() const { return KEYSIG; }
-      virtual bool acceptDrop(MuseScoreView*, const QPointF&, Element*) const;
-      virtual Element* drop(const DropData&);
-      virtual void layout();
+      virtual KeySig* clone() const override       { return new KeySig(*this); }
+      virtual void draw(QPainter*) const override;
+      virtual ElementType type() const override    { return ElementType::KEYSIG; }
+      virtual bool acceptDrop(EditData&) const override;
+      virtual Element* drop(EditData&) override;
+      virtual void layout() override;
+      virtual Shape shape() const override;
+      virtual qreal mag() const override;
 
-      void setSig(int oldSig, int newSig);
-      void setOldSig(int oldSig);
+      //@ sets the key of the key signature
+      Q_INVOKABLE void setKey(Key);
 
       Segment* segment() const            { return (Segment*)parent(); }
-      Measure* measure() const            { return (Measure*)parent()->parent(); }
-      Space space() const;
-      void setCustom(const QList<KeySym*>& symbols);
-      virtual void write(Xml&) const;
-      virtual void read(XmlReader&);
-      //@ -7 (flats) -- +7 (sharps)
-      Q_INVOKABLE int keySignature() const { return _sig.accidentalType(); }    // -7 - +7
-      int customType() const              { return _sig.customType(); }
+      Measure* measure() const            { return parent() ? (Measure*)parent()->parent() : nullptr; }
+      virtual void write(XmlWriter&) const override;
+      virtual void read(XmlReader&) override;
+      //@ returns the key of the key signature (from -7 (flats) to +7 (sharps) )
+      Q_INVOKABLE Key key() const         { return _sig.key(); }
       bool isCustom() const               { return _sig.custom(); }
+      bool isAtonal() const               { return _sig.isAtonal(); }
+      bool isChange() const;
       KeySigEvent keySigEvent() const     { return _sig; }
       bool operator==(const KeySig&) const;
       void changeKeySigEvent(const KeySigEvent&);
       void setKeySigEvent(const KeySigEvent& e)      { _sig = e; }
-      int tick() const;
 
-      bool showCourtesy() const           { return _showCourtesy; };
-      void setShowCourtesy(bool v)        { _showCourtesy = v;    };
+      bool showCourtesy() const           { return _showCourtesy; }
+      void setShowCourtesy(bool v)        { _showCourtesy = v;    }
       void undoSetShowCourtesy(bool v);
 
-      bool showNaturals() const           { return _showNaturals;    };
-	void setShowNaturals(bool v)        { _showNaturals = v;       };
-	void undoSetShowNaturals(bool v)    { _showNaturals = v;       };
+      void setHideNaturals(bool hide)     { _hideNaturals = hide; }
 
-      QVariant getProperty(P_ID propertyId) const;
-      bool setProperty(P_ID propertyId, const QVariant&);
-      QVariant propertyDefault(P_ID id) const;
-	};
+      QVariant getProperty(Pid propertyId) const;
+      bool setProperty(Pid propertyId, const QVariant&);
+      QVariant propertyDefault(Pid id) const;
 
-extern const char* keyNames[15];
+      virtual Element* nextSegmentElement() override;
+      virtual Element* prevSegmentElement() override;
+      virtual QString accessibleInfo() const override;
 
+      SymId convertFromOldId(int val) const;
+      };
+
+extern const char* keyNames[];
+
+}     // namespace Ms
 #endif
 

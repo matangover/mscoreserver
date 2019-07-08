@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2011 Werner Schweer
 //
@@ -16,30 +15,40 @@
 
 #include "text.h"
 
-enum InstrumentNameType {
-      INSTRUMENT_NAME_LONG, INSTRUMENT_NAME_SHORT
+namespace Ms {
+
+enum class InstrumentNameType : char {
+      LONG, SHORT
       };
 
 //---------------------------------------------------------
 //   InstrumentName
 //---------------------------------------------------------
 
-class InstrumentName : public Text  {
-      InstrumentNameType _subtype;
-      int _layoutPos;
+class InstrumentName final : public TextBase  {
+      InstrumentNameType _instrumentNameType;
+      int _layoutPos { 0 };
 
    public:
       InstrumentName(Score*);
-      virtual InstrumentName* clone() const { return new InstrumentName(*this); }
-      virtual ElementType type() const { return INSTRUMENT_NAME; }
+      virtual InstrumentName* clone() const override { return new InstrumentName(*this); }
+      virtual ElementType type() const override    { return ElementType::INSTRUMENT_NAME; }
+
       int layoutPos() const      { return _layoutPos; }
       void setLayoutPos(int val) { _layoutPos = val;  }
 
-      QString subtypeName() const;
-      InstrumentNameType subtype() const { return _subtype; }
-      void setSubtype(InstrumentNameType v);
-      void setSubtype(const QString& s);
+      QString instrumentNameTypeName() const;
+      InstrumentNameType instrumentNameType() const { return _instrumentNameType; }
+      void setInstrumentNameType(InstrumentNameType v);
+      void setInstrumentNameType(const QString& s);
+
+      virtual bool isEditable() const override { return false; }
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid) const override;
       };
 
+
+}     // namespace Ms
 #endif
 

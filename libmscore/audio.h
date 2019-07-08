@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2012 Werner Schweer
 //
@@ -14,7 +13,9 @@
 #ifndef __AUDIO_H__
 #define __AUDIO_H__
 
-class Xml;
+namespace Ms {
+
+class XmlWriter;
 class XmlReader;
 
 //---------------------------------------------------------
@@ -34,8 +35,10 @@ class Audio {
       void setData(const QByteArray& ba) { _data = ba;   }
 
       void read(XmlReader&);
-      void write(Xml&) const;
+      void write(XmlWriter&) const;
       };
 
+
+}     // namespace Ms
 #endif
 

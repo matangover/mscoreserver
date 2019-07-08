@@ -1,9 +1,8 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
-//  Copyright (C) 2010-2011 Werner Schweer
+//  Copyright (C) 2010-2018 Werner Schweer
 //
 //  This program is free software; you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License version 2
@@ -16,27 +15,34 @@
 
 #include "text.h"
 
-class Note;
+namespace Ms {
 
 //---------------------------------------------------------
 //   @@ Fingering
 //---------------------------------------------------------
 
-class Fingering : public Text {
-      Q_OBJECT
+class Fingering final : public TextBase {
 
    public:
-      Fingering(Score* s);
-      virtual Fingering* clone() const { return new Fingering(*this); }
-      virtual ElementType type() const { return FINGERING; }
+      Fingering(Score*, Tid tid, ElementFlags ef = ElementFlag::HAS_TAG);
+      Fingering(Score* s, ElementFlags ef = ElementFlag::HAS_TAG);
 
-      Note* note() const { return (Note*)parent(); }
+      virtual Fingering* clone() const override { return new Fingering(*this); }
+      virtual ElementType type() const override { return ElementType::FINGERING; }
 
-      virtual void layout();
-      virtual void write(Xml&) const;
-      virtual void read(XmlReader&);
-      virtual void reset();
+      Note* note() const { return toNote(parent()); }
+      ElementType layoutType();
+      Placement calculatePlacement() const;
+
+      virtual void draw(QPainter*) const override;
+      virtual void layout() override;
+
+      virtual QVariant propertyDefault(Pid id) const override;
+
+      virtual QString accessibleInfo() const override;
       };
 
+
+}     // namespace Ms
 #endif
 

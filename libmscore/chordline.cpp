@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: chordline.cpp 5491 2012-03-22 20:19:22Z lvinken $
 //
 //  Copyright (C) 2010-2012 Werner Schweer
 //
@@ -18,16 +17,27 @@
 #include "system.h"
 #include "note.h"
 
+namespace Ms {
+
+const char* scorelineNames[] = {
+      QT_TRANSLATE_NOOP("Ms", "Fall"),
+      QT_TRANSLATE_NOOP("Ms", "Doit"),
+      QT_TRANSLATE_NOOP("Ms", "Plop"),
+      QT_TRANSLATE_NOOP("Ms", "Scoop"),
+      };
+
 //---------------------------------------------------------
 //   ChordLine
 //---------------------------------------------------------
 
 ChordLine::ChordLine(Score* s)
-   : Element(s)
+   : Element(s, ElementFlag::MOVABLE)
       {
-      setFlags(ELEMENT_MOVABLE | ELEMENT_SELECTABLE);
       modified = false;
-      _subtype = CHORDLINE_NOTYPE;
+      _chordLineType = ChordLineType::NOTYPE;
+      _straight = false;
+      _lengthX = 0.0;
+      _lengthY = 0.0;
       }
 
 ChordLine::ChordLine(const ChordLine& cl)
@@ -35,48 +45,19 @@ ChordLine::ChordLine(const ChordLine& cl)
       {
       path     = cl.path;
       modified = cl.modified;
-      _subtype = cl._subtype;
+      _chordLineType = cl._chordLineType;
+      _straight = cl._straight;
+      _lengthX = cl._lengthX;
+      _lengthY = cl._lengthY;
       }
 
 //---------------------------------------------------------
-//   setSubtype
+//   setChordLineType
 //---------------------------------------------------------
 
-void ChordLine::setSubtype(ChordLineType st)
+void ChordLine::setChordLineType(ChordLineType st)
       {
-      qreal x2 = 0;
-      qreal y2 = 0;
-      switch(st) {
-            case CHORDLINE_NOTYPE:
-                  break;
-            case CHORDLINE_FALL:
-                  x2 = 2;
-                  y2 = 2;
-                  break;
-            case CHORDLINE_PLOP:
-                  x2 = -2;
-                  y2 = -2;
-                  break;
-            case CHORDLINE_SCOOP:
-                  x2 = -2;
-                  y2 = 2;
-                  break;
-            default:
-            case CHORDLINE_DOIT:
-                  x2 = 2;
-                  y2 = -2;
-                  break;
-            }
-      if (st) {
-            path = QPainterPath();
-            // chordlines to the right of the note
-            if (st == CHORDLINE_FALL || st == CHORDLINE_DOIT)
-                  path.cubicTo(x2/2, 0.0, x2, y2/2, x2, y2);
-            // chordlines to the left of the note
-            if (st == CHORDLINE_PLOP || st == CHORDLINE_SCOOP)
-                  path.cubicTo(0.0, y2/2, x2/2, y2, x2, y2);
-            }
-      _subtype = st;
+      _chordLineType = st;
       }
 
 //---------------------------------------------------------
@@ -85,23 +66,74 @@ void ChordLine::setSubtype(ChordLineType st)
 
 void ChordLine::layout()
       {
+      if (!modified) {
+            qreal x2 = 0;
+            qreal y2 = 0;
+            switch(_chordLineType) {
+                  case ChordLineType::NOTYPE:
+                        break;
+                  case ChordLineType::FALL:
+                        x2 = _initialLength;
+                        y2 = _initialLength;
+                        break;
+                  case ChordLineType::PLOP:
+                        x2 = -_initialLength;
+                        y2 = -_initialLength;
+                        break;
+                  case ChordLineType::SCOOP:
+                        x2 = -_initialLength;
+                        y2 = _initialLength;
+                        break;
+                  default:
+                  case ChordLineType::DOIT:
+                        x2 = _initialLength;
+                        y2 = -_initialLength;
+                        break;
+                  }
+            if (_chordLineType != ChordLineType::NOTYPE) {
+                  path = QPainterPath();
+                  // chordlines to the right of the note
+                  if (_chordLineType == ChordLineType::FALL || _chordLineType == ChordLineType::DOIT) {
+                        if (_straight)
+                              path.lineTo(x2, y2);
+                        else
+                              path.cubicTo(x2/2, 0.0, x2, y2/2, x2, y2);
+                        }
+                  // chordlines to the left of the note
+                  else if (_chordLineType == ChordLineType::PLOP || _chordLineType == ChordLineType::SCOOP) {
+                        if (_straight)
+                              path.lineTo(x2, y2);
+                        else
+                              path.cubicTo(0.0, y2/2, x2/2, y2, x2, y2);
+                        }
+                  }
+            }
+
       qreal _spatium = spatium();
       if (parent()) {
             Note* note = chord()->upNote();
             QPointF p(note->pos());
             // chordlines to the right of the note
-            if (_subtype == CHORDLINE_FALL || _subtype == CHORDLINE_DOIT)
-                  setPos(p.x() + note->headWidth() + _spatium * .2, p.y());
+            if (_chordLineType == ChordLineType::FALL || _chordLineType == ChordLineType::DOIT)
+                  setPos(p.x() + note->bboxRightPos() + _spatium * .2, p.y());
             // chordlines to the left of the note
-            if (_subtype == CHORDLINE_PLOP)
-                  setPos(p.x() + note->headWidth() * .25, p.y() - note->headHeight() * .75);
-            if (_subtype == CHORDLINE_SCOOP)
-                  setPos(p.x() + note->headWidth() * .25, p.y() + note->headHeight() * .75);
+            if (_chordLineType == ChordLineType::PLOP)
+                  setPos(p.x() + note->bboxRightPos() * .25, p.y() - note->headHeight() * .75);
+            if (_chordLineType == ChordLineType::SCOOP) {
+                  qreal x = p.x() + (chord()->up() ? note->bboxRightPos() * .25 : _spatium * -.2);
+                  setPos(x, p.y() + note->headHeight() * .75);
+                  }
             }
       else
             setPos(0.0, 0.0);
       QRectF r(path.boundingRect());
-      bbox().setRect(r.x() * _spatium, r.y() * _spatium, r.width() * _spatium, r.height() * _spatium);
+      int x1, y1, width, height = 0;
+
+      x1 = r.x() * _spatium;
+      y1 = r.y() * _spatium;
+      width = r.width() * _spatium;
+      height = r.height() * _spatium;
+      bbox().setRect(x1, y1, width, height);
       }
 
 //---------------------------------------------------------
@@ -119,8 +151,8 @@ void ChordLine::read(XmlReader& e)
                   QPointF p1;
                   int state = 0;
                   while (e.readNextStartElement()) {
-                        const QStringRef& tag(e.name());
-                        if (tag == "Element") {
+                        const QStringRef& nextTag(e.name());
+                        if (nextTag == "Element") {
                               int type = e.intAttribute("type");
                               qreal x  = e.doubleAttribute("x");
                               qreal y  = e.doubleAttribute("y");
@@ -148,15 +180,22 @@ void ChordLine::read(XmlReader& e)
                                                 }
                                           break;
                                     }
+                              e.skipCurrentElement(); //needed to go to next Element in Path
                               }
                         else
                               e.unknown();
                         }
                   modified = true;
-                  setSubtype(ChordLineType(0));
                   }
             else if (tag == "subtype")
-                  setSubtype(ChordLineType(e.readInt()));
+                  setChordLineType(ChordLineType(e.readInt()));
+             else if (tag == "straight")
+                  setStraight(e.readInt());
+             else if (tag == "lengthX")
+                  setLengthX(e.readInt());
+             else if (tag == "lengthY")
+                  setLengthY(e.readInt());
+
             else if (!Element::readProperties(e))
                   e.unknown();
             }
@@ -166,10 +205,13 @@ void ChordLine::read(XmlReader& e)
 //   write
 //---------------------------------------------------------
 
-void ChordLine::write(Xml& xml) const
+void ChordLine::write(XmlWriter& xml) const
       {
-      xml.stag(name());
-      xml.tag("subtype", _subtype);
+      xml.stag(this);
+      writeProperty(xml, Pid::CHORD_LINE_TYPE);
+      writeProperty(xml, Pid::CHORD_LINE_STRAIGHT);
+      xml.tag("lengthX", _lengthX, 0.0);
+      xml.tag("lengthY", _lengthY, 0.0);
       Element::writeProperties(xml);
       if (modified) {
             int n = path.elementCount();
@@ -191,29 +233,78 @@ void ChordLine::write(Xml& xml) const
 void ChordLine::draw(QPainter* painter) const
       {
       qreal _spatium = spatium();
-      painter->scale(_spatium, _spatium);
-      painter->setPen(QPen(curColor(), .15, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-      painter->setBrush(Qt::NoBrush);
-      painter->drawPath(path);
-      painter->scale(1.0/_spatium, 1.0/_spatium);
+
+      if (this->isStraight()) {
+            painter->scale(_spatium, _spatium);
+            painter->setPen(QPen(curColor(), .15, Qt::SolidLine));
+            painter->setBrush(Qt::NoBrush);
+
+            QPainterPath pathOffset = path;
+            qreal offset = 0.5;
+
+            if (_chordLineType == ChordLineType::FALL)
+                  pathOffset.translate(offset, -offset);
+            else if (_chordLineType == ChordLineType::DOIT)
+                  pathOffset.translate(offset, offset);
+            else if (_chordLineType == ChordLineType::SCOOP)
+                  pathOffset.translate(-offset, offset);
+            else if (_chordLineType == ChordLineType::PLOP)
+                  pathOffset.translate(-offset, -offset);
+
+            painter->drawPath(pathOffset);
+            painter->scale(1.0/_spatium, 1.0/_spatium);
+            }
+      else  {
+            painter->scale(_spatium, _spatium);
+            painter->setPen(QPen(curColor(), .15, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            painter->setBrush(Qt::NoBrush);
+            painter->drawPath(path);
+            painter->scale(1.0/_spatium, 1.0/_spatium);
+            }
       }
 
 //---------------------------------------------------------
 //   editDrag
 //---------------------------------------------------------
 
-void ChordLine::editDrag(const EditData& ed)
+void ChordLine::editDrag(EditData& ed)
       {
       int n = path.elementCount();
       QPainterPath p;
       qreal sp = spatium();
+      _lengthX += ed.delta.x();
+      _lengthY += ed.delta.y();
+
+      // used to limit how grips can affect the slide, stops the user from being able to turn one kind of slide into another
+      int slideBoundary = 5;
+      if ((_chordLineType == ChordLineType::PLOP || _chordLineType == ChordLineType::FALL) && _lengthY < -slideBoundary)
+            _lengthY = -slideBoundary;
+      else if ((_chordLineType == ChordLineType::FALL || _chordLineType == ChordLineType::DOIT) && _lengthX < -slideBoundary)
+            _lengthX = -slideBoundary;
+      else if ((_chordLineType == ChordLineType::DOIT || _chordLineType == ChordLineType::SCOOP) && _lengthY > slideBoundary)
+            _lengthY = slideBoundary;
+      else if ((_chordLineType == ChordLineType::SCOOP || _chordLineType == ChordLineType::PLOP)  && _lengthX > slideBoundary)
+            _lengthX = slideBoundary;
+
       qreal dx = ed.delta.x() / sp;
       qreal dy = ed.delta.y() / sp;
       for (int i = 0; i < n; ++i) {
-            const QPainterPath::Element& e = path.elementAt(i);
+            const QPainterPath::Element& e = (_straight ? path.elementAt(1) : path.elementAt(i));
+            if (_straight) {
+                  if (i > 0)
+                        break;
+                  // check the gradient of the line
+                  const QPainterPath::Element& startPoint = path.elementAt(0);
+                  if ( (_chordLineType == ChordLineType::FALL && (e.x + dx < startPoint.x || e.y + dy < startPoint.y))  ||
+                       (_chordLineType == ChordLineType::DOIT && (e.x + dx < startPoint.x || e.y + dy > startPoint.y))  ||
+                       (_chordLineType == ChordLineType::SCOOP && (e.x + dx > startPoint.x || e.y + dy < startPoint.y)) ||
+                       (_chordLineType == ChordLineType::PLOP && (e.x + dx > startPoint.x || e.y + dy > startPoint.y)) )
+                              return;
+                  }
+
             qreal x = e.x;
             qreal y = e.y;
-            if (ed.curGrip == i) {
+            if (ed.curGrip == Grip(i)) {
                   x += dx;
                   y += dy;
                   }
@@ -232,11 +323,11 @@ void ChordLine::editDrag(const EditData& ed)
                         qreal y2 = path.elementAt(i+1).y;
                         qreal x3 = path.elementAt(i+2).x;
                         qreal y3 = path.elementAt(i+2).y;
-                        if (i + 1 == ed.curGrip) {
+                        if (Grip(i + 1) == ed.curGrip) {
                               x2 += dx;
                               y2 += dy;
                               }
-                        else if (i + 2 == ed.curGrip) {
+                        else if (Grip(i + 2) == ed.curGrip) {
                               x3 += dx;
                               y3 += dy;
                               }
@@ -248,20 +339,130 @@ void ChordLine::editDrag(const EditData& ed)
             }
       path = p;
       modified = true;
-      setSubtype(ChordLineType(0));
       }
 
 //---------------------------------------------------------
 //   updateGrips
 //---------------------------------------------------------
 
-void ChordLine::updateGrips(int* grips, QRectF* grip) const
+void ChordLine::updateGrips(EditData& ed) const
       {
-      int n = path.elementCount();
-      *grips = n;
-      QPointF cp(pagePos());
       qreal sp = spatium();
-      for (int i = 0; i < n; ++i)
-            grip[i].translate(cp + QPointF(path.elementAt(i).x * sp, path.elementAt(i).y * sp));
+      int n    = path.elementCount();
+      QPointF cp(pagePos());
+      if (_straight) {
+            // limit the number of grips to one
+            qreal offset = 0.5 * sp;
+
+            if (_chordLineType == ChordLineType::FALL)
+                  ed.grip[0].translate(QPointF(offset, -offset));
+            else if (_chordLineType == ChordLineType::DOIT)
+                   ed.grip[0].translate(QPointF(offset, offset));
+            else if (_chordLineType == ChordLineType::SCOOP)
+                   ed.grip[0].translate(QPointF(-offset, offset));
+            else if (_chordLineType == ChordLineType::PLOP)
+                   ed.grip[0].translate(QPointF(-offset, -offset));
+
+            // translate on the length and height - stops the grips from going past boundaries of slide
+            ed.grip[0].translate(cp + QPointF(path.elementAt(1).x * sp, path.elementAt(1).y * sp));
+            }
+      else  {
+            for (int i = 0; i < n; ++i)
+                  ed.grip[i].translate(cp + QPointF(path.elementAt(i).x * sp, path.elementAt(i).y * sp));
+            }
       }
+
+//---------------------------------------------------------
+//   grips
+//---------------------------------------------------------
+
+void ChordLine::startEdit(EditData& ed)
+      {
+      Element::startEdit(ed);
+      if (_straight) {
+            ed.curGrip = Grip(0);
+            ed.grips   = 1;
+            }
+      else {
+            ed.grips   = path.elementCount();
+            ed.curGrip = Grip(ed.grips-1);
+            }
+      }
+
+//---------------------------------------------------------
+//   accessibleInfo
+//---------------------------------------------------------
+
+QString ChordLine::accessibleInfo() const
+      {
+      QString rez = Element::accessibleInfo();
+      if(chordLineType() != ChordLineType::NOTYPE)
+            rez = QString("%1: %2").arg(rez).arg(scorelineNames[static_cast<int>(chordLineType()) - 1]);
+      return rez;
+      }
+
+//---------------------------------------------------------
+//   getProperty
+//---------------------------------------------------------
+
+QVariant ChordLine::getProperty(Pid propertyId) const
+      {
+      switch(propertyId) {
+            case Pid::CHORD_LINE_TYPE:
+                  return int(_chordLineType);
+            case Pid::CHORD_LINE_STRAIGHT:
+                  return _straight;
+            default:
+                  break;
+            }
+      return Element::getProperty(propertyId);
+      }
+
+//---------------------------------------------------------
+//   setProperty
+//---------------------------------------------------------
+
+bool ChordLine::setProperty(Pid propertyId, const QVariant& val)
+      {
+      switch(propertyId) {
+            case Pid::CHORD_LINE_TYPE:
+                  setChordLineType(ChordLineType(val.toInt()));
+                  break;
+            case Pid::CHORD_LINE_STRAIGHT:
+                  setStraight(val.toBool());
+                  break;
+            default:
+                  break;
+            }
+      return Element::setProperty(propertyId, val);
+      }
+
+//---------------------------------------------------------
+//   propertyDefault
+//---------------------------------------------------------
+
+QVariant ChordLine::propertyDefault(Pid pid) const
+      {
+      switch (pid) {
+            case Pid::CHORD_LINE_STRAIGHT:
+                  return false;
+            default:
+                  break;
+            }
+      return Element::propertyDefault(pid);
+      }
+
+//---------------------------------------------------------
+//   propertyId
+//---------------------------------------------------------
+
+Pid ChordLine::propertyId(const QStringRef& name) const
+      {
+      if (name == "subtype")
+            return Pid::CHORD_LINE_TYPE;
+      else if (name == "straight")
+            return Pid::CHORD_LINE_STRAIGHT;
+      return Element::propertyId(name);
+      }
+}
 

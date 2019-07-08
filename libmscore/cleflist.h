@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2011 Werner Schweer
 //
@@ -17,22 +16,23 @@
 #include "mscore.h"
 #include "clef.h"
 
+namespace Ms {
+
 class Score;
 
 //---------------------------------------------------------
 //   ClefList
 //---------------------------------------------------------
 
-class ClefList : public QMultiMap<int, ClefTypeList> {
+class ClefList : public std::map<int, ClefTypeList> {
    public:
       ClefList() {}
       ClefTypeList clef(int tick) const;
       void setClef(int tick, ClefTypeList);
-      void read(XmlReader&, Score*);
+      int nextClefTick(int tick) const;
+      int currentClefTick(int tick) const;
       };
 
-typedef QMultiMap<int, ClefTypeList>::iterator iClefEvent;
-typedef QMultiMap<int, ClefTypeList>::const_iterator ciClefEvent;
-
+}     // namespace Ms
 #endif
 

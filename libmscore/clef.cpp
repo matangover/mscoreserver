@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: clef.cpp 5343 2012-02-18 19:50:35Z miwarre $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -17,96 +16,90 @@
 */
 
 #include "clef.h"
+#include "measure.h"
+#include "ambitus.h"
 #include "xml.h"
 #include "sym.h"
 #include "symbol.h"
+#include "system.h"
 #include "score.h"
 #include "staff.h"
 #include "segment.h"
 #include "stafftype.h"
 
-#define TR(a)  QT_TRANSLATE_NOOP("clefTable", a)
+namespace Ms {
+
 
 // table must be in sync with enum ClefType
-const ClefInfo clefTable[] = {
-// tag    xmlName    line oCh pOff|-lines for sharps---||---lines for flats--|   name
-{ "G",    "G",         2,  0, 45, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, TR("Treble clef"),            PITCHED_STAFF },
-{ "G8va", "G",         2,  1, 52, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, TR("Treble clef 8va"),        PITCHED_STAFF },
-{ "G15ma","G",         2,  2, 59, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, TR("Treble clef 15ma"),       PITCHED_STAFF },
-{ "G8vb", "G",         2, -1, 38, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, TR("Treble clef 8vb"),        PITCHED_STAFF },
-{ "F",    "F",         4,  0, 33, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, TR("Bass clef"),              PITCHED_STAFF },
-{ "F8vb", "F",         4, -1, 26, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, TR("Bass clef 8vb"),          PITCHED_STAFF },
-{ "F15mb","F",         4, -2, 19, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, TR("Bass clef 15mb"),         PITCHED_STAFF },
-{ "F3",   "F",         3,  0, 35, { 4, 0, 3,-1, 2, 5, 1, 1, 5, 2, 6, 3, 7, 4 }, TR("Baritone clef (F clef)"), PITCHED_STAFF },
-{ "F5",   "F",         5,  0, 31, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, TR("Subbass clef"),           PITCHED_STAFF },
-{ "C1",   "C",         1,  0, 43, { 5, 1, 4, 0, 3,-1, 2, 2,-1, 3, 0, 4, 1, 5 }, TR("Soprano clef"),           PITCHED_STAFF }, // CLEF_C1
-{ "C2",   "C",         2,  0, 41, { 3, 6, 2, 5, 1, 4, 0, 0, 4, 1, 5, 2, 6, 3 }, TR("Mezzo-soprano clef"),     PITCHED_STAFF }, // CLEF_C2
-{ "C3",   "C",         3,  0, 39, { 1, 4, 0, 3, 6, 2, 5, 5, 2, 6, 3, 7, 4, 8 }, TR("Alto clef"),              PITCHED_STAFF }, // CLEF_C3
-{ "C4",   "C",         4,  0, 37, { 6, 2, 5, 1, 4, 0, 3, 3, 0, 4, 1, 5, 2, 6 }, TR("Tenor clef"),             PITCHED_STAFF }, // CLEF_C4
-{ "TAB",  "TAB",       5,  0,  0, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, TR("Tablature"),              TAB_STAFF     },
-{ "PERC", "percussion",2,  0, 45, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, TR("Percussion"),             PERCUSSION_STAFF },
-{ "C5",   "C",         5,  0, 35, { 4, 0, 3,-1, 2, 5, 1, 1, 5, 2, 6, 3, 7, 4 }, TR("Baritone clef (C clef)"), PITCHED_STAFF }, // CLEF_C5
-{ "G1",   "G",         1,  0, 47, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, TR("French violin clef"),     PITCHED_STAFF }, // CLEF_G4
-{ "F8va", "F",         4,  1, 40, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, TR("Bass clef 8va"),          PITCHED_STAFF }, // CLEF_F_8VA
-{ "F15ma","F",         4,  2, 47, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, TR("Bass clef 15ma"),         PITCHED_STAFF }, // CLEF_F_15MA
-{ "PERC2","percussion",2,  0, 45, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, TR("Percussion"),             PERCUSSION_STAFF }, // CLEF_PERC2 placeholder
-{ "TAB2", "TAB",       5,  0,  0, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, TR("Tablature2"),             TAB_STAFF     },
+const ClefInfo ClefInfo::clefTable[] = {
+// tag    xmlName    line oCh pOff|-lines for sharps---||---lines for flats--|  symbol                           | name                                   | valid in staff group
+{ "G",    "G",         2,  0, 45, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::gClef,                    QT_TRANSLATE_NOOP("clefTable", "Treble clef"),                       StaffGroup::STANDARD  },
+// { "G15mb","G",         2, -2, 59, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::gClef15mb,                QT_TRANSLATE_NOOP("clefTable", "Treble clef 15ma bassa"),                  StaffGroup::STANDARD  },
+{ "G15mb","G",         2, -2, 31, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::gClef15mb,                QT_TRANSLATE_NOOP("clefTable", "Treble clef 15ma bassa"),                  StaffGroup::STANDARD  },
+{ "G8vb", "G",         2, -1, 38, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::gClef8vb,                 QT_TRANSLATE_NOOP("clefTable", "Treble clef 8va bassa"),                   StaffGroup::STANDARD  },
+{ "G8va", "G",         2,  1, 52, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::gClef8va,                 QT_TRANSLATE_NOOP("clefTable", "Treble clef 8va alta"),                   StaffGroup::STANDARD  },
+{ "G15ma","G",         2,  2, 59, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::gClef15ma,                QT_TRANSLATE_NOOP("clefTable", "Treble clef 15ma alta"),                  StaffGroup::STANDARD  },
+{ "G8vbo","G",         2, -1, 38, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::gClef8vbOld,              QT_TRANSLATE_NOOP("clefTable", "Double treble clef 8va bassa on 2nd line"),StaffGroup::STANDARD  },
+{ "G8vbp","G",         2,  0, 45, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::gClef8vbParens,           QT_TRANSLATE_NOOP("clefTable", "Treble clef optional 8va bassa"),          StaffGroup::STANDARD  },
+{ "G1",   "G",         1,  0, 47, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, SymId::gClef,                    QT_TRANSLATE_NOOP("clefTable", "French violin clef"),                StaffGroup::STANDARD  },
+{ "C1",   "C",         1,  0, 43, { 5, 1, 4, 0, 3,-1, 2, 2, 6, 3, 7, 4, 8, 5 }, SymId::cClef,                    QT_TRANSLATE_NOOP("clefTable", "Soprano clef"),                      StaffGroup::STANDARD  },
+{ "C2",   "C",         2,  0, 41, { 3, 6, 2, 5, 1, 4, 0, 0, 4, 1, 5, 2, 6, 3 }, SymId::cClef,                    QT_TRANSLATE_NOOP("clefTable", "Mezzo-soprano clef"),                StaffGroup::STANDARD  },
+{ "C3",   "C",         3,  0, 39, { 1, 4, 0, 3, 6, 2, 5, 5, 2, 6, 3, 7, 4, 8 }, SymId::cClef,                    QT_TRANSLATE_NOOP("clefTable", "Alto clef"),                         StaffGroup::STANDARD  },
+{ "C4",   "C",         4,  0, 37, { 6, 2, 5, 1, 4, 0, 3, 3, 0, 4, 1, 5, 2, 6 }, SymId::cClef,                    QT_TRANSLATE_NOOP("clefTable", "Tenor clef"),                        StaffGroup::STANDARD  },
+{ "C5",   "C",         5,  0, 35, { 4, 0, 3,-1, 2, 5, 1, 1, 5, 2, 6, 3, 7, 4 }, SymId::cClef,                    QT_TRANSLATE_NOOP("clefTable", "Baritone clef (C clef)"),            StaffGroup::STANDARD  },
+{ "C_19C", "G",        2,  0, 45, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::cClefSquare,              QT_TRANSLATE_NOOP("clefTable", "C clef, H shape (19th century)"),    StaffGroup::STANDARD  },
+{ "C3_F18C", "C",      3,  0, 39, { 1, 4, 0, 3, 6, 2, 5, 5, 2, 6, 3, 7, 4, 8 }, SymId::cClefFrench,              QT_TRANSLATE_NOOP("clefTable", "Alto clef (French, 18th century)"),  StaffGroup::STANDARD  },
+{ "C4_F18C", "C",      4,  0, 37, { 6, 2, 5, 1, 4, 0, 3, 3, 0, 4, 1, 5, 2, 6 }, SymId::cClefFrench,              QT_TRANSLATE_NOOP("clefTable", "Tenor clef (French, 18th century)"), StaffGroup::STANDARD  },
+{ "C3_F20C", "C",      3,  0, 39, { 1, 4, 0, 3, 6, 2, 5, 5, 2, 6, 3, 7, 4, 8 }, SymId::cClefFrench20C,           QT_TRANSLATE_NOOP("clefTable", "Alto clef (French, 20th century)"),  StaffGroup::STANDARD  },
+{ "C4_F20C", "C",      4,  0, 37, { 6, 2, 5, 1, 4, 0, 3, 3, 0, 4, 1, 5, 2, 6 }, SymId::cClefFrench20C,           QT_TRANSLATE_NOOP("clefTable", "Tenor clef (French, 20th century)"), StaffGroup::STANDARD  },
+{ "F",    "F",         4,  0, 33, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, SymId::fClef,                    QT_TRANSLATE_NOOP("clefTable", "Bass clef"),                         StaffGroup::STANDARD  },
+{ "F15mb","F",         4, -2, 19, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, SymId::fClef15mb,                QT_TRANSLATE_NOOP("clefTable", "Bass clef 15ma bassa"),                    StaffGroup::STANDARD  },
+{ "F8vb", "F",         4, -1, 26, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, SymId::fClef8vb,                 QT_TRANSLATE_NOOP("clefTable", "Bass clef 8va bassa"),                     StaffGroup::STANDARD  },
+{ "F8va", "F",         4,  1, 40, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, SymId::fClef8va,                 QT_TRANSLATE_NOOP("clefTable", "Bass clef 8va alta"),                     StaffGroup::STANDARD  },
+{ "F15ma","F",         4,  2, 47, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, SymId::fClef15ma,                QT_TRANSLATE_NOOP("clefTable", "Bass clef 15ma alta"),                    StaffGroup::STANDARD  },
+{ "F3",   "F",         3,  0, 35, { 4, 0, 3,-1, 2, 5, 1, 1, 5, 2, 6, 3, 7, 4 }, SymId::fClef,                    QT_TRANSLATE_NOOP("clefTable", "Baritone clef (F clef)"),            StaffGroup::STANDARD  },
+{ "F5",   "F",         5,  0, 31, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::fClef,                    QT_TRANSLATE_NOOP("clefTable", "Subbass clef"),                      StaffGroup::STANDARD  },
+{ "F_F18C","F",        4,  0, 33, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, SymId::fClefFrench,              QT_TRANSLATE_NOOP("clefTable", "F clef (French, 18th century)"),     StaffGroup::STANDARD  },
+{ "F_19C","F",         4,  0, 33, { 2, 5, 1, 4, 7, 3, 6, 6, 3, 7, 4, 8, 5, 9 }, SymId::fClef19thCentury,         QT_TRANSLATE_NOOP("clefTable", "F clef (19th century)"),             StaffGroup::STANDARD  },
+{ "PERC", "percussion",2,  0, 45, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::unpitchedPercussionClef1, QT_TRANSLATE_NOOP("clefTable", "Percussion"),                        StaffGroup::PERCUSSION},
+{ "PERC2","percussion",2,  0, 45, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::unpitchedPercussionClef2, QT_TRANSLATE_NOOP("clefTable", "Percussion 2"),                      StaffGroup::PERCUSSION},
+{ "TAB",  "TAB",       5,  0,  0, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::sixStringTabClef,         QT_TRANSLATE_NOOP("clefTable", "Tablature"),                         StaffGroup::TAB       },
+{ "TAB4", "TAB",       5,  0,  0, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::fourStringTabClef,        QT_TRANSLATE_NOOP("clefTable", "Tablature 4 lines"),                 StaffGroup::TAB       },
+{ "TAB2", "TAB",       5,  0,  0, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::sixStringTabClefSerif,    QT_TRANSLATE_NOOP("clefTable", "Tablature Serif"),                   StaffGroup::TAB       },
+{ "TAB4_SERIF", "TAB", 5,  0,  0, { 0, 3,-1, 2, 5, 1, 4, 4, 1, 5, 2, 6, 3, 7 }, SymId::fourStringTabClefSerif,   QT_TRANSLATE_NOOP("clefTable", "Tablature Serif 4 lines"),           StaffGroup::TAB       },
       };
-#undef TR
+
+//---------------------------------------------------------
+//   tag2type
+//---------------------------------------------------------
+
+ClefType ClefInfo::tag2type(const QString& s)
+      {
+      for (unsigned i = 0; i < sizeof(ClefInfo::clefTable)/sizeof(*ClefInfo::clefTable); ++i) {
+            if (clefTable[i]._tag == s)
+                  return ClefType(i);
+            }
+      return ClefType::G;
+      }
 
 //---------------------------------------------------------
 //   Clef
 //---------------------------------------------------------
 
 Clef::Clef(Score* s)
-  : Element(s)
-      {
-      setFlags(ELEMENT_SELECTABLE | ELEMENT_ON_STAFF | ELEMENT_MOVABLE);
-
-      _showCourtesy               = true;
-      _small                      = false;
-      _clefTypes._concertClef     = CLEF_G;
-      _clefTypes._transposingClef = CLEF_G;
-      curClefType                 = CLEF_G;
-      curLines                    = -1;
-      curLineDist                 = 1.0;
-      }
-
-Clef::Clef(const Clef& c)
-   : Element(c)
-      {
-      _showCourtesy     = c._showCourtesy;
-      _showPreviousClef = c._showPreviousClef;
-      _small            = c._small;
-      _clefTypes        = c._clefTypes;
-      curClefType       = c.curClefType;
-      curLines          = c.curLines;
-      curLineDist       = c.curLineDist;
-      layout1();
-      }
+  : Element(s, ElementFlag::ON_STAFF), symId(SymId::noSym)
+      {}
 
 //---------------------------------------------------------
-//   add
+//   mag
 //---------------------------------------------------------
 
-void Clef::addElement(Element* e, qreal x, qreal y)
+qreal Clef::mag() const
       {
-      e->layout();
-      e->setPos(x, y);
-      e->setParent(this);
-      e->setSelected(selected());
-      elements.push_back(e);
-      }
-
-//---------------------------------------------------------
-//   setSelected
-//---------------------------------------------------------
-
-void Clef::setSelected(bool f)
-      {
-      Element::setSelected(f);
-      foreach(Element* e, elements)
-            e->setSelected(f);
+      qreal mag = staff() ? staff()->mag(tick()) : 1.0;
+      if (_small)
+            mag *= score()->styleD(Sid::smallClefMag);
+      return mag;
       }
 
 //---------------------------------------------------------
@@ -116,203 +109,102 @@ void Clef::setSelected(bool f)
 void Clef::layout()
       {
       // determine current number of lines and line distance
-      int lines      = 5;                             // assume a resonable default
-      qreal lineDist = 1.0;
+      int   lines;
+      qreal lineDist;
+      Segment* clefSeg  = segment();
+      int stepOffset;
 
-      StaffType* staffType;
-      if (staff() && staff()->staffType()) {
-            staffType = staff()->staffType();
+      // check clef visibility and type compatibility
+      if (clefSeg && staff()) {
+            Fraction tick = clefSeg->tick();
+            StaffType* st = staffType();
+            bool show     = st->genClef();        // check staff type allows clef display
 
-            // tablatures:
-            if (staffType->group() == TAB_STAFF) {
-                  if (!staffType->genClef())          // if no clef, do nothing
-                        return;
-                  // if current clef type not compatible with tablature,
-                  // set tab clef according to score style
-                  if (clefTable[clefType()].staffGroup != TAB_STAFF)
-                        setClefType( ClefType(score()->styleI(ST_tabClef)) );
+            // check clef is compatible with staff type group:
+            if (ClefInfo::staffGroup(clefType()) != st->group()) {
+                  if (tick > Fraction(0,1) && !generated()) // if clef is not generated, hide it
+                        show = false;
+                  else                          // if generated, replace with initial clef type
+                        // TODO : instead of initial staff clef (which is assumed to be compatible)
+                        // use the last compatible clef previously found in staff
+                        _clefTypes = staff()->clefType(Fraction(0,1));
                   }
-            // all staff types: init values from staff type
-            lines = staffType->lines();
-            lineDist = staffType->lineDistance().val();
+
+            Measure* meas = clefSeg->measure();
+            if (meas && meas->system() && !score()->lineMode()) {
+                  const auto& ml = meas->system()->measures();
+                  bool found = (std::find(ml.begin(), ml.end(), meas) != ml.end());
+                  bool courtesy = (tick == meas->endTick() && (meas == meas->system()->lastMeasure() || !found));
+                  if (courtesy && (!showCourtesy() || !score()->styleB(Sid::genCourtesyClef) || meas->isFinalMeasureOfSection()))
+                        show = false;
+                  }
+            // if clef not to show or not compatible with staff group
+            if (!show) {
+                  setbbox(QRectF());
+                  symId = SymId::noSym;
+                  qDebug("Clef::layout(): invisible clef at tick %d(%d) staff %d",
+                     segment()->tick().ticks(), segment()->tick().ticks()/1920, staffIdx());
+                  return;
+                  }
+            lines      = st->lines();         // init values from staff type
+            lineDist   = st->lineDistance().val();
+            stepOffset = st->stepOffset();
+            }
+      else {
+            lines      = 5;
+            lineDist   = 1.0;
+            stepOffset = 0;
             }
 
-      // if nothing changed since last layout, do nothing
-      if (curClefType == clefType() && curLines == lines && curLineDist == lineDist)
-            return;
-      // if something has changed, cache new values and re-layout
-      curClefType = clefType();
-      curLines    = lines;
-      curLineDist = lineDist;
-      layout1();
-      }
-
-//---------------------------------------------------------
-//   layout1
-//---------------------------------------------------------
-
-void Clef::layout1()
-      {
-      qreal smag     = _small ? score()->style(ST_smallClefMag).toDouble() : 1.0;
       qreal _spatium = spatium();
-      qreal msp      = _spatium * smag;
       qreal yoff     = 0.0;
+      if (clefType() !=  ClefType::INVALID && clefType() !=  ClefType::MAX) {
+            symId = ClefInfo::symId(clefType());
+            yoff = lineDist * (lines - ClefInfo::line(clefType()));
+            }
+      else
+            symId = SymId::noSym;
 
-      qDeleteAll(elements);
-      elements.clear();
+      switch (clefType()) {
+            case ClefType::C_19C:                            // 19th C clef is like a G clef
+                  yoff = lineDist * 1.5;
+                  break;
+            case ClefType::TAB:                            // TAB clef
+                  // on tablature, position clef at half the number of spaces * line distance
+                  yoff = lineDist * (lines - 1) * .5;
+                  break;
+            case ClefType::TAB4:                            // TAB clef 4 strings
+                  // on tablature, position clef at half the number of spaces * line distance
+                  yoff = lineDist * (lines - 1) * .5;
+                  break;
+            case ClefType::TAB_SERIF:                           // TAB clef alternate style
+                  // on tablature, position clef at half the number of spaces * line distance
+                  yoff = lineDist * (lines - 1) * .5;
+                  break;
+            case ClefType::TAB4_SERIF:                           // TAB clef alternate style
+                  // on tablature, position clef at half the number of spaces * line distance
+                  yoff = lineDist * (lines - 1) * .5;
+                  break;
+            case ClefType::PERC:                           // percussion clefs
+                  yoff = lineDist * (lines - 1) * 0.5;
+                  break;
+            case ClefType::PERC2:
+                  yoff = lineDist * (lines - 1) * 0.5;
+                  break;
+            case ClefType::INVALID:
+            case ClefType::MAX:
+                  qDebug("Clef::layout: invalid type");
+                  return;
+            default:
+                  break;
+            }
+      // clefs on palette or at start of system/measure are left aligned
+      // other clefs are right aligned
+      QRectF r(symBbox(symId));
+      qreal x = segment() && segment()->rtick().isNotZero() ? -r.right() : 0.0;
+      setPos(x, yoff * _spatium + (stepOffset * -_spatium));
 
-      Symbol* symbol = new Symbol(score());
-
-      switch (curClefType) {
-      case CLEF_G:                              // G clef on 2nd line
-            symbol->setSym(trebleclefSym);
-            yoff = 3.0 * curLineDist;
-            break;
-      case CLEF_G1:                             // G clef 8va on 2nd line
-            {
-            symbol->setSym(trebleclefSym);
-            yoff = 3.0 * curLineDist;
-            Symbol* number = new Symbol(score());
-            number->setMag(smag);
-            number->setSym(clefEightSym);
-            addElement(number, 1.0 * msp, -5.0 * msp + yoff * _spatium);
-            }
-            break;
-      case CLEF_G2:                             // G clef 15ma on 2nd line
-            {
-            symbol->setSym(trebleclefSym);
-            yoff = 3.0 * curLineDist;
-            Symbol* number = new Symbol(score());
-            symbol->setMag(smag);
-            number->setSym(clefOneSym);
-            addElement(number, .6 * msp, -5.0 * msp + yoff * _spatium);
-            number = new Symbol(score());
-            number->setSym(clefFiveSym);
-            addElement(number, 1.4 * msp, -5.0 * msp + yoff * _spatium);
-            }
-            break;
-      case CLEF_G3:                             // G clef 8va bassa on 2nd line
-            {
-            symbol->setSym(trebleclefSym);
-            yoff = 3.0 * curLineDist;
-            Symbol* number = new Symbol(score());
-            symbol->setMag(smag);
-            number->setSym(clefEightSym);
-            addElement(number, 1.0 * msp, 4.0 * msp + yoff * _spatium);
-            }
-            break;
-      case CLEF_F:                              // F clef on penultimate line
-            symbol->setSym(bassclefSym);
-            yoff = 1.0 * curLineDist;
-            break;
-      case CLEF_F8:                             // F clef 8va bassa on penultimate line
-            {
-            symbol->setSym(bassclefSym);
-            yoff = 1.0 * curLineDist;
-            Symbol* number = new Symbol(score());
-            symbol->setMag(smag);
-            number->setSym(clefEightSym);
-            addElement(number, .0, 4.5 * msp + yoff * _spatium);
-            }
-            break;
-      case CLEF_F15:                            // F clef 15ma bassa on penultimate line
-            {
-            symbol->setSym(bassclefSym);
-            yoff = 1.0 * curLineDist;
-            Symbol* number = new Symbol(score());
-            symbol->setMag(smag);
-            number->setSym(clefOneSym);
-            addElement(number, .0, 4.5 * msp + yoff * _spatium);
-            number = new Symbol(score());
-            number->setSym(clefFiveSym);
-            addElement(number, .8 * msp, 4.5 * msp + yoff * _spatium);
-            }
-            break;
-      case CLEF_F_B:                            // baritone clef
-            symbol->setSym(bassclefSym);
-            yoff = 2.0 * curLineDist;
-            break;
-      case CLEF_F_C:                            // subbass clef
-            symbol->setSym(bassclefSym);
-            yoff = 0.0;
-            break;
-      case CLEF_C1:                             // C clef in 1st line
-            symbol->setSym(altoclefSym);
-            yoff = 4.0 * curLineDist;
-            break;
-      case CLEF_C2:                             // C clef on 2nd line
-            symbol->setSym(altoclefSym);
-            yoff = 3.0 * curLineDist;
-            break;
-      case CLEF_C3:                             // C clef in 3rd line
-            symbol->setSym(altoclefSym);
-            yoff = 2.0 * curLineDist;
-            break;
-      case CLEF_C4:                             // C clef on 4th line
-            symbol->setSym(altoclefSym);
-            yoff = 1.0 * curLineDist;
-            break;
-      case CLEF_C5:                             // C clef on 5th line
-            symbol->setSym(altoclefSym);
-            yoff = 0.0;
-            break;
-      case CLEF_TAB:                            // TAB clef
-            symbol->setSym(tabclefSym);
-            // on tablature, position clef at half the number of spaces * line distance
-            yoff = curLineDist * (curLines - 1) * .5;
-            break;                              // TAB clef alternate style
-      case CLEF_TAB2:
-            symbol->setSym(tabclef2Sym);
-            // on tablature, position clef at half the number of spaces * line distance
-            yoff = curLineDist * (curLines - 1) * .5;
-            break;
-      case CLEF_PERC:                           // percussion clefs
-      case CLEF_PERC2:
-            symbol->setSym(percussionclefSym);
-            yoff = curLineDist * (curLines - 1) * 0.5;
-            break;
-      case CLEF_G4:                             // G clef in 1st line
-            symbol->setSym(trebleclefSym);
-            yoff = 4.0 * curLineDist;
-            break;
-      case CLEF_F_8VA:                          // F clef 8va on penultimate line
-            {
-            symbol->setSym(bassclefSym);
-            yoff = 1.0 * curLineDist;
-            Symbol* number = new Symbol(score());
-            number->setMag(smag);
-            number->setSym(clefEightSym);
-            addElement(number, .5 * msp, -1.5 * msp + yoff * _spatium);
-            }
-            break;
-      case CLEF_F_15MA:                         // F clef 15ma on penultimate line
-            {
-            symbol->setSym(bassclefSym);
-            yoff = 1.0 * curLineDist;
-            Symbol* number = new Symbol(score());
-            symbol->setMag(smag);
-            number->setSym(clefOneSym);
-            addElement(number, .0 * msp, -1.5 * msp + yoff * _spatium);
-            number = new Symbol(score());
-            number->setSym(clefFiveSym);
-            addElement(number, .8 * msp, -1.5 * msp + yoff * _spatium);
-            }
-            break;
-      case CLEF_INVALID:
-      case CLEF_MAX:
-            return;
-      }
-
-      symbol->setMag(smag * mag());
-      symbol->layout();
-      addElement(symbol, .0, yoff * _spatium);
-      setbbox(QRectF());
-      for (iElement i = elements.begin(); i != elements.end(); ++i) {
-            Element* e = *i;
-            e->setColor(curColor());
-            addbbox(e->bbox().translated(e->pos()));
-            e->setSelected(selected());
-            }
+      setbbox(r);
       }
 
 //---------------------------------------------------------
@@ -321,41 +213,48 @@ void Clef::layout1()
 
 void Clef::draw(QPainter* painter) const
       {
-      if (staff() && staff()->isTabStaff() && !staff()->staffType()->genClef())
-	      return;
-      QColor color(curColor());
-      foreach(Element* e, elements) {
-            e->setColor(color);
-            QPointF pt(e->pos());
-            painter->translate(pt);
-            e->draw(painter);
-            painter->translate(-pt);
-            }
+      if (symId == SymId::noSym || (staff() && !const_cast<const Staff*>(staff())->staffType(tick())->genClef()))
+            return;
+      painter->setPen(curColor());
+      drawSymbol(symId, painter);
       }
 
 //---------------------------------------------------------
 //   acceptDrop
 //---------------------------------------------------------
 
-bool Clef::acceptDrop(MuseScoreView*, const QPointF&, Element* e) const
+bool Clef::acceptDrop(EditData& data) const
       {
-      return e->type() == CLEF;
+      return (data.dropElement->type() == ElementType::CLEF
+         || (/*!generated() &&*/ data.dropElement->type() == ElementType::AMBITUS) );
       }
 
 //---------------------------------------------------------
 //   drop
 //---------------------------------------------------------
 
-Element* Clef::drop(const DropData& data)
+Element* Clef::drop(EditData& data)
       {
-      Element* e = data.element;
+      Element* e = data.dropElement;
       Clef* c = 0;
-      if (e->type() == CLEF) {
-            Clef* clef = static_cast<Clef*>(e);
+      if (e->isClef()) {
+            Clef* clef = toClef(e);
             ClefType stype  = clef->clefType();
             if (clefType() != stype) {
-                  score()->undoChangeClef(staff(), segment(), stype);
+                  score()->undoChangeClef(staff(), this, stype);
                   c = this;
+                  }
+            }
+      else if (e->isAmbitus()) {
+            /*if (!generated())*/ {
+                  Measure*    meas  = measure();
+                  Segment*    segm  = meas->getSegment(SegmentType::Ambitus, meas->tick());
+                  if (segm->element(track()))
+                        score()->undoRemoveElement(segm->element(track()));
+                  Ambitus* r = new Ambitus(score());
+                  r->setParent(segm);
+                  r->setTrack(track());
+                  score()->undoAddElement(r);
                   }
             }
       delete e;
@@ -370,7 +269,6 @@ void Clef::setSmall(bool val)
       {
       if (val != _small) {
             _small = val;
-            curClefType = CLEF_INVALID;
             }
       }
 
@@ -382,9 +280,7 @@ void Clef::read(XmlReader& e)
       {
       while (e.readNextStartElement()) {
             const QStringRef& tag(e.name());
-            if (tag == "subtype")
-                  setClefType(clefType(e.readElementText()));
-            else if (tag == "concertClefType")
+            if (tag == "concertClefType")
                   _clefTypes._concertClef = Clef::clefType(e.readElementText());
             else if (tag == "transposingClefType")
                   _clefTypes._transposingClef = Clef::clefType(e.readElementText());
@@ -393,34 +289,23 @@ void Clef::read(XmlReader& e)
             else if (!Element::readProperties(e))
                   e.unknown();
             }
-      if (score()->mscVersion() < 113)
-            setUserOff(QPointF());
-      if (clefType() == CLEF_INVALID)
-            setClefType(CLEF_G);
+      if (clefType() == ClefType::INVALID)
+            setClefType(ClefType::G);
       }
 
 //---------------------------------------------------------
 //   write
 //---------------------------------------------------------
 
-void Clef::write(Xml& xml) const
+void Clef::write(XmlWriter& xml) const
       {
-      xml.stag(name());
-      xml.tag("concertClefType",     clefTable[_clefTypes._concertClef].tag);
-      xml.tag("transposingClefType", clefTable[_clefTypes._transposingClef].tag);
+      xml.stag(this);
+      writeProperty(xml, Pid::CLEF_TYPE_CONCERT);
+      writeProperty(xml, Pid::CLEF_TYPE_TRANSPOSING);
       if (!_showCourtesy)
             xml.tag("showCourtesyClef", _showCourtesy);
       Element::writeProperties(xml);
       xml.etag();
-      }
-
-//---------------------------------------------------------
-//   tick
-//---------------------------------------------------------
-
-int Clef::tick() const
-      {
-      return segment() ? segment()->tick() : 0;
       }
 
 //---------------------------------------------------------
@@ -430,11 +315,20 @@ int Clef::tick() const
 void Clef::setClefType(const QString& s)
       {
       ClefType ct = clefType(s);
-      if (ct == CLEF_INVALID) {
-            qDebug("Clef::setSubtype: unknown: <%s>\n", qPrintable(s));
-            ct = CLEF_G;
+      if (ct == ClefType::INVALID) {
+            qDebug("Clef::setSubtype: unknown: <%s>", qPrintable(s));
+            ct = ClefType::G;
             }
       setClefType(ct);
+      }
+
+//---------------------------------------------------------
+//   clefTypeName
+//---------------------------------------------------------
+
+const char* Clef::clefTypeName()
+      {
+      return ClefInfo::tag(clefType());
       }
 
 //---------------------------------------------------------
@@ -443,47 +337,7 @@ void Clef::setClefType(const QString& s)
 
 ClefType Clef::clefType(const QString& s)
       {
-      ClefType ct = CLEF_G;
-      bool ok;
-      int i = s.toInt(&ok);
-      if (ok) {
-            //
-            // convert obsolete old coding
-            //
-            switch (i) {
-                  default:
-                  case  0: ct = CLEF_G; break;
-                  case  1: ct = CLEF_G1; break;
-                  case  2: ct = CLEF_G2; break;
-                  case  3: ct = CLEF_G3; break;
-                  case  4: ct = CLEF_F; break;
-                  case  5: ct = CLEF_F8; break;
-                  case  6: ct = CLEF_F15; break;
-                  case  7: ct = CLEF_F_B; break;
-                  case  8: ct = CLEF_F_C; break;
-                  case  9: ct = CLEF_C1; break;
-                  case 10: ct = CLEF_C2; break;
-                  case 11: ct = CLEF_C3; break;
-                  case 12: ct = CLEF_C4; break;
-                  case 13: ct = CLEF_TAB; break;
-                  case 14: ct = CLEF_PERC; break;
-                  case 15: ct = CLEF_C5; break;
-                  case 16: ct = CLEF_G4; break;
-                  case 17: ct = CLEF_F_8VA; break;
-                  case 18: ct = CLEF_F_15MA; break;
-                  case 19: ct = CLEF_PERC2; break;
-                  case 20: ct = CLEF_TAB2; break;
-                  }
-            }
-      else {
-            for (unsigned i = 0; i < sizeof(clefTable)/sizeof(*clefTable); ++i) {
-                  if (clefTable[i].tag == s) {
-                        ct = ClefType(i);
-                        break;
-                        }
-                  }
-            }
-      return ct;
+      return ClefInfo::tag2type(s);
       }
 
 //---------------------------------------------------------
@@ -492,15 +346,15 @@ ClefType Clef::clefType(const QString& s)
 
 void Clef::setClefType(ClefType i)
       {
-      if (score()->concertPitch()) {
+      if (concertPitch()) {
             _clefTypes._concertClef = i;
-            if (_clefTypes._transposingClef == CLEF_INVALID)
+            if (_clefTypes._transposingClef == ClefType::INVALID)
                   _clefTypes._transposingClef = i;
 
             }
       else {
             _clefTypes._transposingClef = i;
-            if (_clefTypes._concertClef == CLEF_INVALID)
+            if (_clefTypes._concertClef == ClefType::INVALID)
                   _clefTypes._concertClef = i;
             }
       }
@@ -529,7 +383,7 @@ void Clef::setTransposingClef(ClefType val)
 
 ClefType Clef::clefType() const
       {
-      if (score()->concertPitch())
+      if (concertPitch())
             return _clefTypes._concertClef;
       else
             return _clefTypes._transposingClef;
@@ -541,8 +395,8 @@ ClefType Clef::clefType() const
 
 void Clef::spatiumChanged(qreal oldValue, qreal newValue)
       {
-      layout1();
       Element::spatiumChanged(oldValue, newValue);
+      layout();
       }
 
 //---------------------------------------------------------
@@ -551,18 +405,51 @@ void Clef::spatiumChanged(qreal oldValue, qreal newValue)
 
 void Clef::undoSetShowCourtesy(bool v)
       {
-      score()->undoChangeProperty(this, P_SHOW_COURTESY, v);
+      undoChangeProperty(Pid::SHOW_COURTESY, v);
+      }
+
+//---------------------------------------------------------
+//   otherClef
+//    try to locate the 'other clef' of a courtesy / main pair
+//---------------------------------------------------------
+
+Clef* Clef::otherClef()
+      {
+      // if not in a clef-segment-measure hierarchy, do nothing
+      if (!parent() || !parent()->isSegment())
+            return nullptr;
+      Segment* segm = toSegment(parent());
+      if (!segm->parent() || !segm->parent()->isMeasure())
+            return 0;
+      Measure* meas = toMeasure(segm->parent());
+      Measure* otherMeas = nullptr;
+      Segment* otherSegm = nullptr;
+      Fraction segmTick  = segm->tick();
+      if (segmTick == meas->tick())                         // if clef segm is measure-initial
+            otherMeas = meas->prevMeasure();                // look for a previous measure
+      else if (segmTick == meas->tick() + meas->ticks())    // if clef segm is measure-final
+            otherMeas = meas->nextMeasure();                // look for a next measure
+      if (!otherMeas)
+            return nullptr;
+      // look for a clef segment in the 'other' measure at the same tick of this clef segment
+      otherSegm = otherMeas->findSegment(SegmentType::Clef | SegmentType::HeaderClef, segmTick);
+      if (!otherSegm)
+            return nullptr;
+      // if any 'other' segment found, look for a clef in the same track as this
+      return toClef(otherSegm->element(track()));
       }
 
 //---------------------------------------------------------
 //   getProperty
 //---------------------------------------------------------
 
-QVariant Clef::getProperty(P_ID propertyId) const
+QVariant Clef::getProperty(Pid propertyId) const
       {
       switch(propertyId) {
-            case P_SHOW_COURTESY: return showCourtesy();
-            case P_SMALL:         return small();
+            case Pid::CLEF_TYPE_CONCERT:     return int(_clefTypes._concertClef);
+            case Pid::CLEF_TYPE_TRANSPOSING: return int(_clefTypes._transposingClef);
+            case Pid::SHOW_COURTESY: return showCourtesy();
+            case Pid::SMALL:         return small();
             default:
                   return Element::getProperty(propertyId);
             }
@@ -572,14 +459,21 @@ QVariant Clef::getProperty(P_ID propertyId) const
 //   setProperty
 //---------------------------------------------------------
 
-bool Clef::setProperty(P_ID propertyId, const QVariant& v)
+bool Clef::setProperty(Pid propertyId, const QVariant& v)
       {
       switch(propertyId) {
-            case P_SHOW_COURTESY: _showCourtesy = v.toBool(); break;
-            case P_SMALL:         setSmall(v.toBool()); break;
+            case Pid::CLEF_TYPE_CONCERT:
+                  setConcertClef(ClefType(v.toInt()));
+                  break;
+            case Pid::CLEF_TYPE_TRANSPOSING:
+                  setTransposingClef(ClefType(v.toInt()));
+                  break;
+            case Pid::SHOW_COURTESY: _showCourtesy = v.toBool(); break;
+            case Pid::SMALL:         setSmall(v.toBool()); break;
             default:
                   return Element::setProperty(propertyId, v);
             }
+      triggerLayout();
       return true;
       }
 
@@ -587,11 +481,53 @@ bool Clef::setProperty(P_ID propertyId, const QVariant& v)
 //   propertyDefault
 //---------------------------------------------------------
 
-QVariant Clef::propertyDefault(P_ID id) const
+QVariant Clef::propertyDefault(Pid id) const
       {
       switch(id) {
-            case P_SHOW_COURTESY: return true;
-            case P_SMALL:         return false;
+            case Pid::CLEF_TYPE_CONCERT:     return int(ClefType::INVALID);
+            case Pid::CLEF_TYPE_TRANSPOSING: return int(ClefType::INVALID);
+            case Pid::SHOW_COURTESY: return true;
+            case Pid::SMALL:         return false;
             default:              return Element::propertyDefault(id);
             }
       }
+
+//---------------------------------------------------------
+//   nextSegmentElement
+//---------------------------------------------------------
+
+Element* Clef::nextSegmentElement()
+      {
+      return segment()->firstInNextSegments(staffIdx());
+      }
+
+//---------------------------------------------------------
+//   prevSegmentElement
+//---------------------------------------------------------
+
+Element* Clef::prevSegmentElement()
+      {
+      return segment()->lastInPrevSegments(staffIdx());
+      }
+
+//---------------------------------------------------------
+//   accessibleInfo
+//---------------------------------------------------------
+
+QString Clef::accessibleInfo() const
+      {
+      return qApp->translate("clefTable", ClefInfo::name(clefType()));
+      }
+
+//---------------------------------------------------------
+//   clear
+//---------------------------------------------------------
+
+void Clef::clear()
+      {
+      setbbox(QRectF());
+      symId = SymId::noSym;
+      }
+
+}
+

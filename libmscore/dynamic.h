@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: dynamic.h 5500 2012-03-28 16:28:26Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -17,73 +16,136 @@
 #include "text.h"
 #include "mscore.h"
 
+namespace Ms {
+
 class Measure;
 class Segment;
 
-//---------------------------------------------------------
-//   Dyn
-//---------------------------------------------------------
-
-struct Dyn {
-      int velocity;           ///< associated midi velocity (0-127, -1 = none)
-      bool accent;            ///< if true add velocity to current chord velocity
-      const char* tag;
-
-      Dyn(int velo, bool a, const char* t)
-         : velocity(velo), accent(a), tag(t) {}
-      };
-
 //-----------------------------------------------------------------------------
 //   @@ Dynamic
-///   dynamics marker; determines midi velocity
+///    dynamics marker; determines midi velocity
 //
-//    @P dynRange  DynamicRange  DYNAMIC_STAFF, DYNAMIC_PART, DYNAMIC_SYSTEM
+//   @P range  enum (Dynamic.STAFF, .PART, .SYSTEM)
 //-----------------------------------------------------------------------------
 
-class Dynamic : public Text {
-      Q_OBJECT
-      Q_PROPERTY(DynamicRange type READ dynRange  WRITE undoSetDynRange)
+class Dynamic final : public TextBase {
+   Q_GADGET
+   public:
+      enum class Type : char {
+            OTHER,
+            PPPPPP,
+            PPPPP,
+            PPPP,
+            PPP,
+            PP,
+            P,
+            MP,
+            MF,
+            F,
+            FF,
+            FFF,
+            FFFF,
+            FFFFF,
+            FFFFFF,
+            FP,
+            SF,
+            SFZ,
+            SFF,
+            SFFZ,
+            SFP,
+            SFPP,
+            RFZ,
+            RF,
+            FZ,
+            M,
+            R,
+            S,
+            Z
+            };
 
-      int _subtype;
+      enum class Range : char {
+            STAFF, PART, SYSTEM
+            };
+
+      enum class Speed : char {
+            SLOW, NORMAL, FAST
+            };
+
+      struct ChangeSpeedItem {
+            Speed speed;
+            const char* name;
+            };
+
+      Q_ENUM(Type);
+
+   private:
+      Type _dynamicType;
 
       mutable QPointF dragOffset;
-      int _velocity;          // associated midi velocity 0-127
-      DynamicRange _dynRange;   // DYNAMIC_STAFF, DYNAMIC_PART, DYNAMIC_SYSTEM
+      int _velocity;     // associated midi velocity 0-127
+      Range _dynRange;   // STAFF, PART, SYSTEM
+
+      int _changeInVelocity         { 128 };
+      Speed _velChangeSpeed         { Speed::NORMAL };
+
+      virtual QRectF drag(EditData&) override;
+      virtual Sid getPropertyStyle(Pid) const override;
 
    public:
       Dynamic(Score*);
       Dynamic(const Dynamic&);
-      virtual Dynamic* clone() const   { return new Dynamic(*this); }
-      virtual ElementType type() const { return DYNAMIC; }
-      Segment* segment() const         { return (Segment*)parent(); }
-      Measure* measure() const         { return (Measure*)parent()->parent(); }
+      virtual Dynamic* clone() const override     { return new Dynamic(*this); }
+      virtual ElementType type() const override   { return ElementType::DYNAMIC; }
+      Segment* segment() const                    { return (Segment*)parent(); }
+      Measure* measure() const                    { return (Measure*)parent()->parent(); }
 
-      void setSubtype(int val);
-      void setSubtype(const QString&);
-      QString subtypeName() const;
-      int subtype() const { return _subtype; }
+      void setDynamicType(Type val)               { _dynamicType = val;   }
+      void setDynamicType(const QString&);
+      static QString dynamicTypeName(Dynamic::Type type);
+      QString dynamicTypeName() const { return dynamicTypeName(_dynamicType); }
+      Type dynamicType() const                     { return _dynamicType; }
+      virtual int subtype() const override         { return (int) _dynamicType; }
+      virtual QString subtypeName() const override { return dynamicTypeName(); }
 
-      virtual void layout();
-      virtual void write(Xml& xml) const;
-      virtual void read(XmlReader&);
+      virtual void layout() override;
+      virtual void write(XmlWriter& xml) const override;
+      virtual void read(XmlReader&) override;
 
-      virtual bool isEditable() const { return true; }
-      virtual void startEdit(MuseScoreView*, const QPointF&);
-      virtual void reset();
+      virtual bool isEditable() const override { return true; }
+      virtual void startEdit(EditData&) override;
+      virtual void endEdit(EditData&) override;
+      virtual void reset() override;
 
-      void resetType();
-      void setVelocity(int v);
+      void setVelocity(int v)   { _velocity = v;    }
       int velocity() const;
-      DynamicRange dynRange() const    { return _dynRange; }
-      void setDynRange(DynamicRange t) { _dynRange = t;    }
-      void undoSetDynRange(DynamicRange t);
+      Range dynRange() const    { return _dynRange; }
+      void setDynRange(Range t) { _dynRange = t;    }
+      void undoSetDynRange(Range t);
 
-      virtual QLineF dragAnchor() const;
+      int changeInVelocity() const;
+      void setChangeInVelocity(int val);
+      Fraction velocityChangeLength() const;
 
-      QVariant getProperty(P_ID propertyId) const;
-      bool setProperty(P_ID propertyId, const QVariant&);
-      QVariant propertyDefault(P_ID id) const;
+      Speed velChangeSpeed() const  { return _velChangeSpeed; }
+      void setVelChangeSpeed(Speed val) { _velChangeSpeed = val; }
+      static QString speedToName(Speed speed);
+      static Speed nameToSpeed(QString name);
+
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool     setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid id) const override;
+      virtual Pid propertyId(const QStringRef& xmlName) const override;
+      virtual QString propertyUserValue(Pid) const override;
+
+      virtual QString accessibleInfo() const override;
+      virtual QString screenReaderInfo() const override;
+      void doAutoplace();
+
+      static const std::vector<ChangeSpeedItem> changeSpeedTable;
       };
 
-extern Dyn dynList[];
+}     // namespace Ms
+
+Q_DECLARE_METATYPE(Ms::Dynamic::Range);
+
 #endif

@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: stafftext.h 5500 2012-03-28 16:28:26Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -16,44 +15,26 @@
 
 #include "text.h"
 #include "part.h"
+#include "staff.h"
+#include "stafftextbase.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
-//   ChannelActions
+//   StaffText
 //---------------------------------------------------------
 
-struct ChannelActions {
-      int channel;
-      QStringList midiActionNames;
-      };
-
-//---------------------------------------------------------
-//   @@ StaffText
-//---------------------------------------------------------
-
-class StaffText : public Text  {
-      Q_OBJECT
-
-      QString _channelNames[4];
-      QList<ChannelActions> _channelActions;
-      bool _setAeolusStops;
-      int aeolusStops[4];
+class StaffText final : public StaffTextBase  {
+      virtual Sid getPropertyStyle(Pid) const override;
+      virtual QVariant propertyDefault(Pid id) const override;
 
    public:
-      StaffText(Score* = 0);
-      virtual StaffText* clone() const { return new StaffText(*this); }
-      virtual ElementType type() const { return STAFF_TEXT; }
-      virtual void write(Xml& xml) const;
-      virtual void read(XmlReader&);
-
-      QString channelName(int voice) const                { return _channelNames[voice]; }
-      void setChannelName(int v, const QString& s)        { _channelNames[v] = s;        }
-      const QList<ChannelActions>* channelActions() const { return &_channelActions;    }
-      QList<ChannelActions>* channelActions()             { return &_channelActions;    }
-      void clearAeolusStops();
-      void setAeolusStop(int group, int idx, bool val);
-      bool getAeolusStop(int group, int idx) const;
-      void setSetAeolusStops(bool val) { _setAeolusStops = val; }
-      bool setAeolusStops() const      { return _setAeolusStops; }
+      StaffText(Score* s = 0, Tid = Tid::STAFF);
+      virtual StaffText* clone() const override       { return new StaffText(*this); }
+      virtual ElementType type() const override       { return ElementType::STAFF_TEXT; }
+      virtual void layout() override;
       };
 
+
+}     // namespace Ms
 #endif

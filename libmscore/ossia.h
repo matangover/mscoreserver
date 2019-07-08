@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: sym.cpp 4559 2011-07-20 08:42:55Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -16,21 +15,22 @@
 
 #include "element.h"
 
+namespace Ms {
+
 //---------------------------------------------------------
 //   @@ Ossia
-///   not implemented yet
+///    not implemented yet
 //---------------------------------------------------------
 
-class Ossia : public Element {
-      Q_OBJECT
-
-
+class Ossia final : public Element {
    public:
       Ossia(Score*);
       Ossia(const Ossia&);
-      virtual Ossia* clone() const     { return new Ossia(*this); }
-      virtual ElementType type() const { return OSSIA; }
+      virtual Ossia* clone() const override     { return new Ossia(*this); }
+      virtual ElementType type() const override { return ElementType::OSSIA; }
       };
 
+
+}     // namespace Ms
 #endif
 

@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2011 Werner Schweer
 //
@@ -13,6 +12,8 @@
 
 #ifndef __TUPLETMAP_H__
 #define __TUPLETMAP_H__
+
+namespace Ms {
 
 class Tuplet;
 
@@ -39,5 +40,7 @@ class TupletMap {
       void add(Tuplet* _o, Tuplet* _n) { map.append(Tuplet2(_o, _n)); }
       };
 
+
+}     // namespace Ms
 #endif
 

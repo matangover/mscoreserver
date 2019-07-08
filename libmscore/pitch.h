@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -13,6 +12,8 @@
 
 #ifndef __PITCH_H__
 #define __PITCH_H__
+
+namespace Ms {
 
 //---------------------------------------------------------
 ///  PitchList
@@ -26,5 +27,7 @@ class PitchList : public QMap<int, int> {
       void setPitchOffset(int tick, int offset) { insert(tick, offset); }
       };
 
+
+}     // namespace Ms
 #endif
 

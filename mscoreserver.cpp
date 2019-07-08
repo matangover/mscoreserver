@@ -20,6 +20,8 @@
 
 QString revision;
 
+using namespace Ms;
+
 //---------------------------------------------------------
 //   main
 //---------------------------------------------------------
@@ -29,15 +31,15 @@ int main(int argc, char* argv[])
       QGuiApplication _app(argc, argv);
       QGuiApplication* app = &_app;
 
-      MScore::PDPI = 300; // view.logicalDpiX();
-      MScore::DPI  = MScore::PDPI;        // logical drawing resolution
-      MScore::DPMM = MScore::DPI / INCH;  // dots/mm
+      // MScore::PDPI = 300; // view.logicalDpiX();
+      // MScore::DPI  = MScore::PDPI;        // logical drawing resolution
+      // MScore::DPMM = MScore::DPI / INCH;  // dots/mm
       MScore::init();
 
       app->setApplicationName("MuseScoreServer");
       app->setOrganizationName("MuseScore");
 
-      QString configFileName = QDir::homePath() + "/mscoreserver/mscoreserver.ini";
+      QString configFileName = QDir::homePath() + "/Documents/code/mscoreserver/mscoreserver.ini";
 
       // Configure logging into files
       QSettings* mainLogSettings = new QSettings(configFileName, QSettings::IniFormat, app);

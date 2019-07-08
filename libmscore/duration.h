@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: duration.h 5151 2011-12-29 09:10:31Z wschweer $
 //
 //  Copyright (C) 2008-2011 Werner Schweer
 //
@@ -14,8 +13,11 @@
 #ifndef __DURATION_H__
 #define __DURATION_H__
 
+#include "config.h"
 #include "element.h"
 #include "durationtype.h"
+
+namespace Ms {
 
 class Tuplet;
 class Beam;
@@ -23,41 +25,49 @@ class Spanner;
 
 //---------------------------------------------------------
 //   @@ DurationElement
-///   Virtual base class for Chord, Rest and Tuplet.
+///    Virtual base class for Chord, Rest and Tuplet.
 //
-//   @P duration int     duration in ticks
+//   @P duration       Fraction  duration (as written)
+//   @P globalDuration Fraction  played duration
 //---------------------------------------------------------
 
 class DurationElement : public Element {
-      Q_OBJECT
-      Q_PROPERTY(int duration READ durationTicks WRITE setDuration);
-
       Fraction _duration;
       Tuplet* _tuplet;
 
+// #ifdef SCRIPT_INTERFACE
+//       void setDurationW(FractionWrapper* f)  { _duration = f->fraction(); }
+//       FractionWrapper* durationW() const     { return new FractionWrapper(_duration); }
+//       FractionWrapper* globalDurW() const    { return new FractionWrapper(globalDuration()); }
+// #endif
+
    public:
-      DurationElement(Score* s);
+      DurationElement(Score* = 0, ElementFlags = ElementFlag::MOVABLE | ElementFlag::ON_STAFF);
       DurationElement(const DurationElement& e);
       ~DurationElement();
 
       virtual Measure* measure() const    { return (Measure*)(parent()); }
 
-      bool readProperties(XmlReader& e);
-      void writeProperties(Xml& xml) const;
-      void writeTuplet(Xml& xml);
+      void readAddTuplet(Tuplet* t);
+      void writeTupletStart(XmlWriter& xml) const;
+      void writeTupletEnd(XmlWriter& xml) const;
 
       void setTuplet(Tuplet* t)           { _tuplet = t;      }
       Tuplet* tuplet() const              { return _tuplet;   }
+      Tuplet* topTuplet() const;
       virtual Beam* beam() const          { return 0;         }
-      virtual int tick() const = 0;
-      int actualTicks() const;
 
-      Fraction duration() const           { return _duration; }
-      Fraction globalDuration() const;
-      void setDuration(const Fraction& f) { _duration = f;    }
-      void setDuration(int ticks)         { _duration = Fraction::fromTicks(ticks); }
-      int durationTicks() const           { return _duration.ticks(); }
+      Fraction actualTicks() const;
+
+      virtual Fraction ticks() const { return _duration; }
+      Fraction globalTicks() const;
+      void setTicks(const Fraction& f) { _duration = f;    }
+
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
       };
 
+
+}     // namespace Ms
 #endif
 

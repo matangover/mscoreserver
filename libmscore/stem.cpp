@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -19,10 +18,17 @@
 #include "hook.h"
 #include "tremolo.h"
 #include "note.h"
+#include "xml.h"
 
 // TEMPORARY HACK!!
 #include "sym.h"
 // END OF HACK
+
+namespace Ms {
+
+static const ElementStyle stemStyle {
+      { Sid::stemWidth,                          Pid::LINE_WIDTH              },
+      };
 
 //---------------------------------------------------------
 //   Stem
@@ -32,9 +38,17 @@
 Stem::Stem(Score* s)
    : Element(s)
       {
-      _len     = 0.0;
-      _userLen = 0.0;
-      setFlags(ELEMENT_SELECTABLE);
+      initElementStyle(&stemStyle);
+      resetProperty(Pid::USER_LEN);
+      }
+
+//---------------------------------------------------------
+//   vStaffIdx
+//---------------------------------------------------------
+
+int Stem::vStaffIdx() const
+      {
+      return staffIdx() + chord()->staffMove();
       }
 
 //---------------------------------------------------------
@@ -55,40 +69,55 @@ qreal Stem::stemLen() const
       return up() ? -_len : _len;
       }
 
-//---------------------------------------------------------
-//   lineWidth
-//---------------------------------------------------------
-
-qreal Stem::lineWidth() const
-      {
-      return point(score()->styleS(ST_stemWidth));
-      }
-
-//---------------------------------------------------------
+//-------------------------------------------------------------------
 //   layout
-//---------------------------------------------------------
+//    For beamed notes this is called twice. The final stem
+//    length can only be calculated after stretching of the measure.
+//    We need a guessed stem shape to calculate the minimal distance
+//    between segments. The guessed stem must have at least the
+//    right direction.
+//-------------------------------------------------------------------
 
 void Stem::layout()
       {
-      qreal l = _len + _userLen;
-      qreal _up = up() ? -1.0 : 1.0;
-      l *= _up;
+      qreal l    = _len + _userLen;
+      qreal _up  = up() ? -1.0 : 1.0;
+      l         *= _up;
 
-      qreal y1 = 0.0;
-      Staff* st = staff();
-      if (chord() && st && !st->isTabStaff()) {
-            Note* n  = up() ? chord()->downNote() : chord()->upNote();
-            const Sym& sym = symbols[score()->symIdx()][n->noteHead()];
-            if (n->mirror())
-                  _up *= -1;
-            y1 -= sym.attach(n->magS()).y() * _up;
+      qreal y1 = 0.0;                           // vertical displacement to match note attach point
+      const Staff* stf = staff();
+      if (chord()) {
+            setMag(chord()->mag());
+            Fraction tick = chord()->tick();
+            const StaffType* st = stf ? stf->staffType(tick) : 0;
+            if (st && st->isTabStaff() ) {            // TAB staves
+                  if (st->stemThrough()) {
+                        // if stems through staves, gets Y pos. of stem-side note relative to chord other side
+                        qreal lineDist = st->lineDistance().val() * spatium();
+                        y1             = (chord()->downString() - chord()->upString()) * _up * lineDist;
+                        // if fret marks above lines, raise stem beginning by 1/2 line distance
+                        if (!st->onLines())
+                              y1 -= lineDist * 0.5;
+                        // shorten stem by 1/2 lineDist to clear the note and a little more to keep 'air' between stem and note
+                        lineDist *= 0.7 * mag();
+                        y1       += _up * lineDist;
+                        }
+                  // in other TAB types, no correction
+                  }
+            else {                              // non-TAB
+                  // move stem start to note attach point
+                  Note* n  = up() ? chord()->downNote() : chord()->upNote();
+                  y1      += (up() ? n->stemUpSE().y() : n->stemDownNW().y());
+                  rypos() = n->rypos();
+                  }
             }
+
+      qreal lw5 = _lineWidth * .5 * mag();
 
       line.setLine(0.0, y1, 0.0, l);
 
       // compute bounding rectangle
       QRectF r(line.p1(), line.p2());
-      qreal lw5  = lineWidth() * .5;
       setbbox(r.normalized().adjusted(-lw5, -lw5, lw5, lw5));
       }
 
@@ -118,42 +147,48 @@ void Stem::spatiumChanged(qreal oldValue, qreal newValue)
 
 void Stem::draw(QPainter* painter) const
       {
-      Staff* st = staff();
-      bool useTab = st && st->isTabStaff();
-
-      if (useTab && st->staffType()->slashStyle())
+      // hide if second chord of a cross-measure pair
+      if (chord() && chord()->crossMeasure() == CrossMeasure::SECOND)
             return;
-      qreal lw = lineWidth();
-      painter->setPen(QPen(curColor(), lw, Qt::SolidLine, Qt::RoundCap));
+
+      const Staff* st      = staff();
+      const StaffType* stt = st ? st->staffType(chord()->tick()) : 0;
+      bool useTab          = stt && stt->isTabStaff();
+
+      painter->setPen(QPen(curColor(), _lineWidth * mag(), Qt::SolidLine, Qt::RoundCap));
       painter->drawLine(line);
-      if (!useTab)
+
+      if (!(useTab && chord()))
             return;
 
       // TODO: adjust bounding rectangle in layout() for dots and for slash
-      StaffTypeTablature* stt = static_cast<StaffTypeTablature*>(st->staffType());
       qreal sp = spatium();
+      bool _up = up();
 
       // slashed half note stem
-      if (chord() && chord()->durationType().type() == TDuration::V_HALF
-         && stt->minimStyle() == TAB_MINIM_SLASHED) {
-            qreal wdt   = sp * STAFFTYPE_TAB_SLASH_WIDTH;
+      if (chord()->durationType().type() == TDuration::DurationType::V_HALF && stt->minimStyle() == TablatureMinimStyle::SLASHED) {
+            // position slashes onto stem
+            qreal y = _up ? -(_len+_userLen) + STAFFTYPE_TAB_SLASH_2STARTY_UP*sp : (_len+_userLen) - STAFFTYPE_TAB_SLASH_2STARTY_DN*sp;
+            // if stems through, try to align slashes within or across lines
+            if (stt->stemThrough()) {
+                  qreal halfLineDist = stt->lineDistance().val() * sp * 0.5;
+                  qreal halfSlashHgt = STAFFTYPE_TAB_SLASH_2TOTHEIGHT * sp * 0.5;
+                  y = lrint( (y + halfSlashHgt) / halfLineDist) * halfLineDist - halfSlashHgt;
+                  }
+            // draw slashes
+            qreal hlfWdt= sp * STAFFTYPE_TAB_SLASH_WIDTH * 0.5;
             qreal sln   = sp * STAFFTYPE_TAB_SLASH_SLANTY;
             qreal thk   = sp * STAFFTYPE_TAB_SLASH_THICK;
             qreal displ = sp * STAFFTYPE_TAB_SLASH_DISPL;
             QPainterPath path;
-
-            qreal y = stt->stemsDown() ?
-                         _len - STAFFTYPE_TAB_SLASH_2STARTY_DN*sp :
-                        -_len + STAFFTYPE_TAB_SLASH_2STARTY_UP*sp;
             for (int i = 0; i < 2; ++i) {
-                  path.moveTo( wdt*0.5-lw, y);        // top-right corner
-                  path.lineTo( wdt*0.5-lw, y+thk);    // bottom-right corner
-                  path.lineTo(-wdt*0.5,    y+thk+sln);// bottom-left corner
-                  path.lineTo(-wdt*0.5,    y+sln);    // top-left corner
+                  path.moveTo( hlfWdt, y);            // top-right corner
+                  path.lineTo( hlfWdt, y+thk);        // bottom-right corner
+                  path.lineTo(-hlfWdt, y+thk+sln);    // bottom-left corner
+                  path.lineTo(-hlfWdt, y+sln);        // top-left corner
                   path.closeSubpath();
                   y += displ;
                   }
-//            setbbox(path.boundingRect());
             painter->setBrush(QBrush(curColor()));
             painter->setPen(Qt::NoPen);
             painter->drawPath(path);
@@ -161,13 +196,14 @@ void Stem::draw(QPainter* painter) const
 
       // dots
       // NOT THE BEST PLACE FOR THIS?
-      // with tablatures, dots are not drawn near 'notes', but near stems
+      // with tablatures and stems beside staves, dots are not drawn near 'notes', but near stems
       int nDots = chord()->dots();
-      if (nDots > 0) {
-            qreal y = stemLen() - (stt->stemsDown() ?
-                        (STAFFTYPE_TAB_DEFAULTSTEMLEN_DN - 0.75) * sp : 0.0 );
-            symbols[score()->symIdx()][dotSym].draw(painter, magS(),
-                        QPointF(STAFFTYPE_TAB_DEFAULTDOTDIST_X * sp, y), nDots);
+      if (nDots > 0 && !stt->stemThrough()) {
+            qreal x     = chord()->dotPosX();
+            qreal y     = ( (STAFFTYPE_TAB_DEFAULTSTEMLEN_DN * 0.2) * sp) * (_up ? -1.0 : 1.0);
+            qreal step  = score()->styleS(Sid::dotDotDistance).val() * sp;
+            for (int dot = 0; dot < nDots; dot++, x += step)
+                  drawSymbol(SymId::augmentationDot, painter, QPointF(x, y));
             }
       }
 
@@ -175,12 +211,12 @@ void Stem::draw(QPainter* painter) const
 //   write
 //---------------------------------------------------------
 
-void Stem::write(Xml& xml) const
+void Stem::write(XmlWriter& xml) const
       {
-      xml.stag("Stem");
+      xml.stag(this);
       Element::writeProperties(xml);
-      if (_userLen != 0.0)
-            xml.tag("userLen", _userLen / spatium());
+      writeProperty(xml, Pid::USER_LEN);
+      writeProperty(xml, Pid::LINE_WIDTH);
       xml.etag();
       }
 
@@ -191,40 +227,64 @@ void Stem::write(Xml& xml) const
 void Stem::read(XmlReader& e)
       {
       while (e.readNextStartElement()) {
-            const QStringRef& tag(e.name());
-            if (tag == "userLen")
-                  _userLen = e.readDouble() * spatium();
-            else if (tag == "subtype")        // obsolete
-                  e.skipCurrentElement();
-            else if (!Element::readProperties(e))
+            if (!readProperties(e))
                   e.unknown();
             }
-      if (_userLen < 0.0)
-            _userLen = -_userLen;
+      }
+
+//---------------------------------------------------------
+//   readProperties
+//---------------------------------------------------------
+
+bool Stem::readProperties(XmlReader& e)
+      {
+      const QStringRef& tag(e.name());
+
+      if (readProperty(tag, e, Pid::USER_LEN))
+            ;
+      else if (readStyledProperty(e, tag))
+            ;
+      else if (Element::readProperties(e))
+            ;
+      else
+            return false;
+      return true;
       }
 
 //---------------------------------------------------------
 //   updateGrips
 //---------------------------------------------------------
 
-void Stem::updateGrips(int* grips, QRectF* grip) const
+void Stem::updateGrips(EditData& ed) const
       {
-      *grips   = 1;
-      grip[0].translate(pagePos() + line.p2());
+      ed.grip[0].translate(pagePos() + line.p2());
+      }
+
+//---------------------------------------------------------
+//   startEdit
+//---------------------------------------------------------
+
+void Stem::startEdit(EditData& ed)
+      {
+      Element::startEdit(ed);
+      ed.grips   = 1;
+      ed.curGrip = Grip::START;
+      ElementEditData* eed = ed.getData(this);
+      eed->pushProperty(Pid::USER_LEN);
       }
 
 //---------------------------------------------------------
 //   editDrag
 //---------------------------------------------------------
 
-void Stem::editDrag(const EditData& ed)
+void Stem::editDrag(EditData& ed)
       {
       qreal yDelta = ed.delta.y();
       _userLen += up() ? -yDelta : yDelta;
       layout();
-      Chord* c = static_cast<Chord*>(parent());
+      Chord* c = chord();
       if (c->hook())
-            c->hook()->move(0.0, ed.delta.y());
+            c->hook()->move(QPointF(0.0, ed.delta.y()));
       }
 
 //---------------------------------------------------------
@@ -233,7 +293,7 @@ void Stem::editDrag(const EditData& ed)
 
 void Stem::reset()
       {
-      score()->undoChangeProperty(this, P_USER_LEN, 0.0);
+      undoChangeProperty(Pid::USER_LEN, 0.0);
       Element::reset();
       }
 
@@ -241,9 +301,10 @@ void Stem::reset()
 //   acceptDrop
 //---------------------------------------------------------
 
-bool Stem::acceptDrop(MuseScoreView*, const QPointF&, Element* e) const
+bool Stem::acceptDrop(EditData& data) const
       {
-      if ((e->type() == TREMOLO) && (static_cast<Tremolo*>(e)->subtype() <= TREMOLO_R64)) {
+      Element* e = data.dropElement;
+      if ((e->type() == ElementType::TREMOLO) && (toTremolo(e)->tremoloType() <= TremoloType::R64)) {
             return true;
             }
       return false;
@@ -253,14 +314,14 @@ bool Stem::acceptDrop(MuseScoreView*, const QPointF&, Element* e) const
 //   drop
 //---------------------------------------------------------
 
-Element* Stem::drop(const DropData& data)
+Element* Stem::drop(EditData& data)
       {
-      Element* e = data.element;
-      Chord* ch = chord();
+      Element* e = data.dropElement;
+      Chord* ch  = chord();
+
       switch(e->type()) {
-            case TREMOLO:
+            case ElementType::TREMOLO:
                   e->setParent(ch);
-                  score()->setLayout(ch->measure());
                   score()->undoAddElement(e);
                   return e;
             default:
@@ -274,10 +335,13 @@ Element* Stem::drop(const DropData& data)
 //   getProperty
 //---------------------------------------------------------
 
-QVariant Stem::getProperty(P_ID propertyId) const
+QVariant Stem::getProperty(Pid propertyId) const
       {
       switch(propertyId) {
-            case P_USER_LEN: return userLen();
+            case Pid::LINE_WIDTH:
+                  return lineWidth();
+            case Pid::USER_LEN:
+                  return userLen();
             default:
                   return Element::getProperty(propertyId);
             }
@@ -287,18 +351,51 @@ QVariant Stem::getProperty(P_ID propertyId) const
 //   setProperty
 //---------------------------------------------------------
 
-bool Stem::setProperty(P_ID propertyId, const QVariant& v)
+bool Stem::setProperty(Pid propertyId, const QVariant& v)
       {
-      score()->addRefresh(canvasBoundingRect());
-      switch(propertyId) {
-            case P_USER_LEN:  setUserLen(v.toDouble()); break;
+      switch (propertyId) {
+            case Pid::LINE_WIDTH:
+                  setLineWidth(v.toReal());
+                  break;
+            case Pid::USER_LEN:
+                  setUserLen(v.toDouble());
+                  break;
             default:
                   return Element::setProperty(propertyId, v);
             }
-      score()->addRefresh(canvasBoundingRect());
-      layout();
-      score()->addRefresh(canvasBoundingRect());
-      score()->setLayoutAll(false);       //DEBUG
+      triggerLayout();
       return true;
       }
+
+//---------------------------------------------------------
+//   propertyDefault
+//---------------------------------------------------------
+
+QVariant Stem::propertyDefault(Pid id) const
+      {
+      switch (id) {
+            case Pid::USER_LEN:
+                  return 0.0;
+//            case Pid::LINE_WIDTH:
+//                  return score()->styleP(Sid::stemWidth);
+            default:
+                  return Element::propertyDefault(id);
+            }
+      }
+
+//---------------------------------------------------------
+//   hookPos
+//    in chord coordinates
+//---------------------------------------------------------
+
+QPointF Stem::hookPos() const
+      {
+      QPointF p(pos() + line.p2());
+
+      qreal xoff = _lineWidth * .5 * mag();
+      p.rx() += xoff;
+      return p;
+      }
+
+}
 

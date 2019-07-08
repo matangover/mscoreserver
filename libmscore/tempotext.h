@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: tempotext.h 5500 2012-03-28 16:28:26Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -14,47 +13,65 @@
 #ifndef __TEMPOTEXT_H__
 #define __TEMPOTEXT_H__
 
+#include "durationtype.h"
 #include "text.h"
+
+namespace Ms {
 
 //-------------------------------------------------------------------
 //   @@ TempoText
-///   Tempo marker which determines the midi tempo.
+///    Tempo marker which determines the midi tempo.
 //
-//    @P tempo qreal      tempo in beats per second (beat=1/4)
-//    @P followText bool  determine tempo from text
+//   @P tempo       float     tempo in quarter notes (crochets) per second
+//   @P followText  bool      determine tempo from text
 //-------------------------------------------------------------------
 
-class TempoText : public Text  {
-      Q_OBJECT
-      Q_PROPERTY(qreal tempo         READ tempo      WRITE undoSetTempo)
-      Q_PROPERTY(bool  followText    READ followText WRITE undoSetFollowText)
-
-      qreal _tempo;          // beats per second
+class TempoText final : public TextBase  {
+      qreal _tempo;           // beats per second
       bool _followText;       // parse text to determine tempo
+      qreal _relative;
+      bool _isRelative;
+
+      void updateScore();
+      void updateTempo();
+      virtual void endEdit(EditData&) override;
+      virtual void undoChangeProperty(Pid id, const QVariant&, PropertyFlags ps) override;
 
    public:
       TempoText(Score*);
-      virtual TempoText* clone() const { return new TempoText(*this); }
-      virtual ElementType type() const { return TEMPO_TEXT; }
-      virtual void write(Xml& xml) const;
-      virtual void read(XmlReader&);
-      Segment* segment() const   { return (Segment*)parent(); }
-      Measure* measure() const   { return (Measure*)parent()->parent(); }
+      virtual TempoText* clone() const override   { return new TempoText(*this); }
+      virtual ElementType type() const override   { return ElementType::TEMPO_TEXT; }
+
+      virtual void write(XmlWriter& xml) const override;
+      virtual void read(XmlReader&) override;
+
+      Segment* segment() const   { return toSegment(parent()); }
+      Measure* measure() const   { return toMeasure(parent()->parent()); }
 
       qreal tempo() const        { return _tempo;      }
-      void setTempo(qreal v)     { _tempo = v;         }
+      void setTempo(qreal v);
       void undoSetTempo(qreal v);
+      bool isRelative()          { return _isRelative; }
+      void setRelative(qreal v)  { _isRelative = true; _relative = v; }
 
       bool followText() const    { return _followText; }
       void setFollowText(bool v) { _followText = v;    }
       void undoSetFollowText(bool v);
+      void updateRelative();
 
-      virtual void textChanged();
       virtual void layout();
 
-      QVariant getProperty(P_ID propertyId) const;
-      bool setProperty(P_ID propertyId, const QVariant&);
-      QVariant propertyDefault(P_ID id) const;
+      static int findTempoDuration(const QString& s, int& len, TDuration& dur);
+      static QString duration2tempoTextString(const TDuration dur);
+      static QString duration2userName(const TDuration t);
+
+      QVariant getProperty(Pid propertyId) const override;
+      bool setProperty(Pid propertyId, const QVariant&) override;
+      QVariant propertyDefault(Pid id) const override;
+      Sid getPropertyStyle(Pid) const override;
+      virtual QString accessibleInfo() const override;
       };
 
+
+}     // namespace Ms
 #endif

@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: trill.h 5226 2012-01-18 10:52:02Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -16,75 +15,113 @@
 
 #include "line.h"
 
+namespace Ms {
+
 class Trill;
 class Accidental;
-class QPainter;
 
 //---------------------------------------------------------
 //   @@ TrillSegment
 //---------------------------------------------------------
 
-class TrillSegment : public LineSegment {
-      Q_OBJECT
+class TrillSegment final : public LineSegment {
+      std::vector<SymId> _symbols;
+
+      void symbolLine(SymId start, SymId fill);
+      void symbolLine(SymId start, SymId fill, SymId end);
+      virtual Sid getPropertyStyle(Pid) const override;
 
    protected:
    public:
-      TrillSegment(Score* s) : LineSegment(s) {}
-      Trill* trill() const                { return (Trill*)spanner(); }
-      virtual ElementType type() const    { return TRILL_SEGMENT; }
-      virtual TrillSegment* clone() const { return new TrillSegment(*this); }
-      virtual void draw(QPainter*) const;
-      virtual bool acceptDrop(MuseScoreView*, const QPointF&, Element*) const;
-      virtual Element* drop(const DropData&);
-      virtual void layout();
+      TrillSegment(Spanner* sp, Score* s) : LineSegment(sp, s, ElementFlag::MOVABLE | ElementFlag::ON_STAFF)      {}
+      TrillSegment(Score* s) : LineSegment(s, ElementFlag::MOVABLE | ElementFlag::ON_STAFF)      {}
+      Trill* trill() const                         { return (Trill*)spanner(); }
+      virtual ElementType type() const override  { return ElementType::TRILL_SEGMENT; }
+      virtual TrillSegment* clone() const override { return new TrillSegment(*this); }
+      virtual void draw(QPainter*) const override;
+      virtual bool acceptDrop(EditData&) const override;
+      virtual Element* drop(EditData&) override;
+      virtual void layout() override;
+
+      virtual Element* propertyDelegate(Pid) override;
+
+      virtual void add(Element*) override;
+      virtual void remove(Element*) override;
+      virtual void scanElements(void* data, void (*func)(void*, Element*), bool all) override;
+      Shape shape() const override;
+
+      std::vector<SymId> symbols() const           { return _symbols; }
+      void setSymbols(const std::vector<SymId>& s) { _symbols = s; }
       };
 
 //---------------------------------------------------------
 //   @@ Trill
-//   @P subtype   enum TrillType TRILL_LINE, UPPRALL_LINE, DOWNPRALL_LINE, PRALLPRALL_LINE, PURE_LINE
+//   @P trillType  enum (Trill.DOWNPRALL_LINE, .PRALLPRALL_LINE, .PURE_LINE, .TRILL_LINE, .UPPRALL_LINE)
 //---------------------------------------------------------
 
-class Trill : public SLine {
-      Q_OBJECT
-      Q_ENUMS(TrillType)
+class Trill final : public SLine {
+      virtual Sid getPropertyStyle(Pid) const override;
 
    public:
-      enum TrillType {
-            TRILL_LINE, UPPRALL_LINE, DOWNPRALL_LINE, PRALLPRALL_LINE, PURE_LINE
+      enum class Type : char {
+            TRILL_LINE, UPPRALL_LINE, DOWNPRALL_LINE, PRALLPRALL_LINE,
             };
 
    private:
-      Q_PROPERTY(TrillType subtype READ subtype WRITE undoSetSubtype)
-      TrillType _subtype;
-      ElementList _el;        // accidentals etc.
+      Type _trillType;
+      Accidental* _accidental;
+      MScore::OrnamentStyle _ornamentStyle; // for use in ornaments such as trill
+      bool _playArticulation;
 
    public:
       Trill(Score* s);
-      virtual Trill* clone() const     { return new Trill(*this); }
-      virtual ElementType type() const { return TRILL; }
+      virtual ~Trill();
+      virtual Trill* clone() const override       { return new Trill(*this); }
+      virtual ElementType type() const override { return ElementType::TRILL; }
 
-      virtual void layout();
-      virtual LineSegment* createLineSegment();
-      virtual void add(Element*);
-      virtual void remove(Element*);
-      virtual void write(Xml&) const;
-      virtual void read(XmlReader&);
+      virtual void layout() override;
+      virtual LineSegment* createLineSegment() override;
+      virtual void add(Element*) override;
+      virtual void remove(Element*) override;
+      virtual void write(XmlWriter&) const override;
+      virtual void read(XmlReader&) override;
 
-      void setSubtype(const QString& s);
-      void undoSetSubtype(TrillType val);
-      void setSubtype(TrillType tt)     { _subtype = tt; }
-      TrillType subtype() const         { return _subtype; }
-      QString subtypeName() const;
+      void setTrillType(const QString& s);
+      void setTrillType(Type tt)          { _trillType = tt; }
+      Type trillType() const              { return _trillType; }
+      void setOrnamentStyle(MScore::OrnamentStyle val) { _ornamentStyle = val;}
+      MScore::OrnamentStyle ornamentStyle() const { return _ornamentStyle;}
+      void setPlayArticulation(bool val)  { _playArticulation = val;}
+      bool playArticulation() const       { return _playArticulation; }
+      static QString type2name(Trill::Type t);
+      QString trillTypeName() const;
+      QString trillTypeUserName() const;
+      Accidental* accidental() const      { return _accidental; }
+      void setAccidental(Accidental* a)   { _accidental = a; }
 
       Segment* segment() const          { return (Segment*)parent(); }
-      virtual void scanElements(void* data, void (*func)(void*, Element*), bool all=true);
+      virtual void scanElements(void* data, void (*func)(void*, Element*), bool all=true) override;
 
-      virtual QVariant getProperty(P_ID propertyId) const;
-      virtual bool setProperty(P_ID propertyId, const QVariant&);
-      virtual QVariant propertyDefault(P_ID) const;
-      virtual void setYoff(qreal);
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid) const override;
+      virtual Pid propertyId(const QStringRef& xmlName) const override;
+
+      virtual QString accessibleInfo() const override;
       };
 
-Q_DECLARE_METATYPE(Trill::TrillType)
+struct TrillTableItem {
+      Trill::Type type;
+      const char* name;
+      QString userName;
+      };
+
+extern const TrillTableItem trillTable[];
+extern int trillTableSize();
+
+}     // namespace Ms
+
+Q_DECLARE_METATYPE(Ms::Trill::Type);
+
 #endif
 

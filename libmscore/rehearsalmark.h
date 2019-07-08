@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2011 Werner Schweer
 //
@@ -14,21 +13,27 @@
 #ifndef __REHEARSALMARK_H__
 #define __REHEARSALMARK_H__
 
-#include "text.h"
+#include "systemtext.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   @@ RehearsalMark
 //---------------------------------------------------------
 
-class RehearsalMark : public Text  {
-      Q_OBJECT
-
+class RehearsalMark final : public TextBase  {
+      virtual Sid getPropertyStyle(Pid) const override;
 
    public:
       RehearsalMark(Score* score);
-      virtual RehearsalMark* clone() const { return new RehearsalMark(*this); }
-      virtual ElementType type() const { return REHEARSAL_MARK; }
+      virtual RehearsalMark* clone() const override { return new RehearsalMark(*this); }
+      virtual ElementType type() const override     { return ElementType::REHEARSAL_MARK; }
+      Segment* segment() const                      { return (Segment*)parent(); }
+      virtual void layout() override;
+      virtual QVariant propertyDefault(Pid id) const override;
       };
 
+
+}     // namespace Ms
 #endif
 

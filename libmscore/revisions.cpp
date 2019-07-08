@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -13,6 +12,8 @@
 
 #include "revisions.h"
 #include "xml.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   Revision
@@ -28,7 +29,7 @@ Revision::Revision()
 //   write
 //---------------------------------------------------------
 
-void Revision::write(Xml& xml) const
+void Revision::write(XmlWriter& xml) const
       {
       xml.stag("Revision");
       xml.tag("id",   _id);
@@ -70,13 +71,13 @@ Revisions::Revisions()
 //   write
 //---------------------------------------------------------
 
-void Revisions::write(Xml& xml) const
+void Revisions::write(XmlWriter& xml) const
       {
       for (Revision* r = _trunk; r; r = r->parent())
             write(xml, r);
       }
 
-void Revisions::write(Xml& xml, const Revision* r) const
+void Revisions::write(XmlWriter& xml, const Revision* r) const
       {
       r->write(xml);
       foreach(const Revision* rr, r->branches())
@@ -104,4 +105,6 @@ QString Revisions::getRevision(QString /*id*/)
       {
       return QString();
       }
+
+}
 

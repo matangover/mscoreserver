@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -17,25 +16,37 @@
 #include "text.h"
 #include "instrument.h"
 
+namespace Ms {
+
 //---------------------------------------------------------
 //   @@ InstrumentChange
 //---------------------------------------------------------
 
-class InstrumentChange : public Text  {
-      Q_OBJECT
-
-      Instrument _instrument;
+class InstrumentChange final : public TextBase  {
+      Instrument* _instrument;  // Staff holds ownership if part of score
 
    public:
       InstrumentChange(Score*);
-      virtual InstrumentChange* clone() const { return new InstrumentChange(*this); }
-      virtual ElementType type() const        { return INSTRUMENT_CHANGE; }
-      virtual void write(Xml& xml) const;
-      virtual void read(XmlReader&);
+      InstrumentChange(const Instrument&, Score*);
+      InstrumentChange(const InstrumentChange&);
+      ~InstrumentChange();
 
-      Instrument instrument() const           { return _instrument; }
-      void setInstrument(const Instrument& i) { _instrument = i;    }
-      Segment* segment()                      { return (Segment*)parent(); }
+      virtual InstrumentChange* clone() const override { return new InstrumentChange(*this); }
+      virtual ElementType type() const override        { return ElementType::INSTRUMENT_CHANGE; }
+      virtual void write(XmlWriter& xml) const override;
+      virtual void read(XmlReader&) override;
+      virtual void layout() override;
+
+      Instrument* instrument() const        { return _instrument;  }
+      void setInstrument(Instrument* i)     { _instrument = i;     }
+      void setInstrument(Instrument&& i)    { *_instrument = i;    }
+      void setInstrument(const Instrument& i);
+
+      Segment* segment() const              { return toSegment(parent()); }
+
+      virtual QVariant propertyDefault(Pid) const override;
       };
 
+
+}     // namespace Ms
 #endif

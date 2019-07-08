@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: spacer.h 5656 2012-05-21 15:36:47Z wschweer $
 //
 //  Copyright (C) 2008-2011 Werner Schweer
 //
@@ -16,14 +15,14 @@
 
 #include "element.h"
 
-class QPainter;
+namespace Ms {
 
 //---------------------------------------------------------
 //   SpacerType
 //---------------------------------------------------------
 
-enum SpacerType {
-      SPACER_UP, SPACER_DOWN
+enum class SpacerType : char {
+      UP, DOWN, FIXED
       };
 
 //-------------------------------------------------------------------
@@ -31,10 +30,8 @@ enum SpacerType {
 ///    Vertical spacer element to adjust the distance of staves.
 //-------------------------------------------------------------------
 
-class Spacer : public Element {
-      Q_OBJECT
-
-      SpacerType _subtype;
+class Spacer final : public Element {
+      SpacerType _spacerType;
       qreal _gap;
 
       QPainterPath path;
@@ -45,24 +42,26 @@ class Spacer : public Element {
       Spacer(Score*);
       Spacer(const Spacer&);
       virtual Spacer* clone() const    { return new Spacer(*this); }
-      virtual ElementType type() const { return SPACER; }
-      SpacerType subtype() const { return _subtype; }
-      void subtype(SpacerType t) { _subtype = t;    }
-      void setSubtype(SpacerType val);
+      virtual ElementType type() const { return ElementType::SPACER; }
+      SpacerType spacerType() const    { return _spacerType; }
+      void setSpacerType(SpacerType t) { _spacerType = t; }
 
-      virtual void write(Xml&) const;
+      virtual void write(XmlWriter&) const;
       virtual void read(XmlReader&);
       virtual void draw(QPainter*) const;
       virtual bool isEditable() const { return true; }
-      virtual void editDrag(const EditData&);
-      virtual void updateGrips(int*, QRectF*) const;
+      virtual void startEdit(EditData&) override;
+      virtual void editDrag(EditData&) override;
+      virtual void updateGrips(EditData&) const override;
       virtual void spatiumChanged(qreal, qreal);
       void setGap(qreal sp);
       qreal gap() const     { return _gap; }
 
-      QVariant getProperty(P_ID propertyId) const;
-      bool setProperty(P_ID propertyId, const QVariant&);
-      QVariant propertyDefault(P_ID id) const;
+      QVariant getProperty(Pid propertyId) const;
+      bool setProperty(Pid propertyId, const QVariant&);
+      QVariant propertyDefault(Pid id) const;
       };
 
+
+}     // namespace Ms
 #endif

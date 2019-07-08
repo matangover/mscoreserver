@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: symbol.h 5253 2012-01-25 20:40:25Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -15,53 +14,56 @@
 #define __SYMBOL_H__
 
 #include "bsymbol.h"
-#include "sym.h"
+
+namespace Ms {
 
 class Segment;
-class QPainter;
+class ScoreFont;
+enum class SymId;
 
 //---------------------------------------------------------
 //   @@ Symbol
-///   Symbol constructed from builtin symbol.
+///    Symbol constructed from builtin symbol.
+//
+//   @P symbol       string       the SMuFL name of the symbol
 //---------------------------------------------------------
 
 class Symbol : public BSymbol {
-      Q_OBJECT
-
    protected:
       SymId _sym;
+      const ScoreFont* _scoreFont = nullptr;
 
    public:
-      Symbol(Score* s);
-      Symbol(Score* s, SymId sy);
+      Symbol(Score* s, ElementFlags f = ElementFlag::MOVABLE);
       Symbol(const Symbol&);
 
-      Symbol &operator=(const Symbol&);
+      Symbol &operator=(const Symbol&) = delete;
 
-      virtual Symbol* clone() const     { return new Symbol(*this); }
-      virtual ElementType type() const  { return SYMBOL; }
+      virtual Symbol* clone() const      { return new Symbol(*this); }
+      virtual ElementType type() const   { return ElementType::SYMBOL; }
 
-      void setSym(SymId s) { _sym  = s;    }
-      SymId sym() const    { return _sym;  }
+      void setSym(SymId s, const ScoreFont* sf = nullptr) { _sym  = s; _scoreFont = sf;    }
+      SymId sym() const                  { return _sym;  }
+      QString symName() const;
 
-      virtual void draw(QPainter*) const;
-      virtual void write(Xml& xml) const;
-      virtual void read(XmlReader&);
-      virtual void layout();
-      void setAbove(bool);
+      virtual void draw(QPainter*) const override;
+      virtual void write(XmlWriter& xml) const override;
+      virtual void read(XmlReader&) override;
+      virtual void layout() override;
 
-      virtual qreal baseLine() const { return 0.0; }
-      Segment* segment() const       { return (Segment*)parent(); }
+      virtual QVariant getProperty(Pid) const override;
+      virtual bool setProperty(Pid, const QVariant&) override;
+
+      virtual qreal baseLine() const     { return 0.0; }
+      virtual Segment* segment() const   { return (Segment*)parent(); }
       };
 
 //---------------------------------------------------------
 //   @@ FSymbol
-///   Symbol constructed from a font glyph.
+///    Symbol constructed from a font glyph.
 //---------------------------------------------------------
 
-class FSymbol : public BSymbol {
-      Q_OBJECT
-
+class FSymbol final : public BSymbol {
       QFont _font;
       int _code;
 
@@ -70,10 +72,10 @@ class FSymbol : public BSymbol {
       FSymbol(const FSymbol&);
 
       virtual FSymbol* clone() const    { return new FSymbol(*this); }
-      virtual ElementType type() const  { return FSYMBOL; }
+      virtual ElementType type() const  { return ElementType::FSYMBOL; }
 
       virtual void draw(QPainter*) const;
-      virtual void write(Xml& xml) const;
+      virtual void write(XmlWriter& xml) const;
       virtual void read(XmlReader&);
       virtual void layout();
 
@@ -85,5 +87,6 @@ class FSymbol : public BSymbol {
       void setCode(int val)          { _code = val; }
       };
 
+}     // namespace Ms
 #endif
 

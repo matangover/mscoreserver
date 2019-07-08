@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2011-2012 Werner Schweer and others
 //
@@ -26,6 +25,7 @@
 #include "page.h"
 #include "part.h"
 #include "staff.h"
+#include "system.h"
 #include "keysig.h"
 #include "clef.h"
 #include "text.h"
@@ -34,33 +34,99 @@
 #include "excerpt.h"
 #include "mscore.h"
 #include "stafftype.h"
+#include "sym.h"
+
 #ifdef OMR
 #include "omr/omr.h"
 #include "omr/omrpage.h"
 #endif
+
 #include "sig.h"
 #include "undo.h"
 #include "imageStore.h"
 #include "audio.h"
 #include "barline.h"
-#include "libmscore/qzipreader_p.h"
-#include "libmscore/qzipwriter_p.h"
+#include "thirdparty/qzip/qzipreader_p.h"
+#include "thirdparty/qzip/qzipwriter_p.h"
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
+namespace Ms {
 
 //---------------------------------------------------------
-//   write
+//   writeMeasure
 //---------------------------------------------------------
 
-void Score::write(Xml& xml, bool selectionOnly)
+static void writeMeasure(XmlWriter& xml, MeasureBase* m, int staffIdx, bool writeSystemElements, bool forceTimeSig)
       {
-      xml.stag("Score");
+      //
+      // special case multi measure rest
+      //
+      if (m->isMeasure() || staffIdx == 0)
+            m->write(xml, staffIdx, writeSystemElements, forceTimeSig);
+
+      if (m->score()->styleB(Sid::createMultiMeasureRests) && m->isMeasure() && toMeasure(m)->mmRest())
+            toMeasure(m)->mmRest()->write(xml, staffIdx, writeSystemElements, forceTimeSig);
+
+      xml.setCurTick(m->endTick());
+      }
+
+//---------------------------------------------------------
+//   writeMovement
+//---------------------------------------------------------
+
+void Score::writeMovement(XmlWriter& xml, bool selectionOnly)
+      {
+      // if we have multi measure rests and some parts are hidden,
+      // then some layout information is missing:
+      // relayout with all parts set visible
+
+      QList<Part*> hiddenParts;
+      bool unhide = false;
+      if (styleB(Sid::createMultiMeasureRests)) {
+            for (Part* part : _parts) {
+                  if (!part->show()) {
+                        if (!unhide) {
+                              startCmd();
+                              unhide = true;
+                              }
+                        part->undoChangeProperty(Pid::VISIBLE, true);
+                        hiddenParts.append(part);
+                        }
+                  }
+            }
+      if (unhide) {
+            doLayout();
+            for (Part* p : hiddenParts)
+                  p->setShow(false);
+            }
+
+      xml.stag(this);
+      if (excerpt()) {
+            Excerpt* e = excerpt();
+            QMultiMap<int, int> trackList = e->tracks();
+            QMapIterator<int, int> i(trackList);
+            if (!(trackList.size() == e->parts().size() * VOICES) && !trackList.isEmpty()) {
+                  while (i.hasNext()) {
+                      i.next();
+                      xml.tagE(QString("Tracklist sTrack=\"%1\" dstTrack=\"%2\"").arg(i.key()).arg(i.value()));
+                      }
+                  }
+            }
+
+      if (lineMode())
+            xml.tag("layoutMode", "line");
+      if (systemMode())
+            xml.tag("layoutMode", "system");
 
 #ifdef OMR
-      if (_omr && xml.writeOmr)
-            _omr->write(xml);
+      if (masterScore()->omr() && xml.writeOmr())
+            masterScore()->omr()->write(xml);
 #endif
-      if (_showOmr && xml.writeOmr)
-            xml.tag("showOmr", _showOmr);
-      if (_audio && xml.writeOmr) {
+      if (isMaster() && masterScore()->showOmr() && xml.writeOmr())
+            xml.tag("showOmr", masterScore()->showOmr());
+      if (_audio && xml.writeOmr()) {
             xml.tag("playMode", int(_playMode));
             _audio->write(xml);
             }
@@ -72,56 +138,37 @@ void Score::write(Xml& xml, bool selectionOnly)
                   }
             }
       int n = _layer.size();
-      for (int i = 1; i < n; ++i) {       // dont save default variant
+      for (int i = 1; i < n; ++i) {       // don’t save default variant
             const Layer& l = _layer[i];
             xml.tagE(QString("Layer name=\"%1\" mask=\"%2\"").arg(l.name).arg(l.tags));
             }
       xml.tag("currentLayer", _currentLayer);
 
-      if (!_testMode)
-            _syntiState.write(xml);
+      if (isTopScore() && !MScore::testMode)
+            _synthesizerState.write(xml);
 
       if (pageNumberOffset())
             xml.tag("page-offset", pageNumberOffset());
       xml.tag("Division", MScore::division);
-      xml.curTrack = -1;
+      xml.setCurTrack(-1);
 
-      _style.save(xml, true);      // save only differences to buildin style
+      if (isTopScore())                   // only top score
+            style().save(xml, true);       // save only differences to buildin style
 
-      if (!parentScore()) {
-            int idx = 0;
-            foreach(StaffType** st, _staffTypes) {
-                  if ((idx >= STAFF_TYPES) || !(*st)->isEqual(*::staffTypes[idx]))
-                        (*st)->write(xml, idx);
-                  ++idx;
-                  }
-            }
-      xml.tag("showInvisible", _showInvisible);
+      xml.tag("showInvisible",   _showInvisible);
       xml.tag("showUnprintable", _showUnprintable);
-      xml.tag("showFrames", _showFrames);
-      xml.tag("showMargins", _showPageborders);
+      xml.tag("showFrames",      _showFrames);
+      xml.tag("showMargins",     _showPageborders);
 
       QMapIterator<QString, QString> i(_metaTags);
       while (i.hasNext()) {
             i.next();
-            if (!_testMode  || i.key() != "platform")
-                  xml.tag(QString("metaTag name=\"%1\"").arg(i.key()), i.value());
+            // do not output "platform" and "creationDate" in test and save template mode
+            if ((!MScore::testMode && !MScore::saveTemplateMode) || (i.key() != "platform" && i.key() != "creationDate"))
+                  xml.tag(QString("metaTag name=\"%1\"").arg(i.key().toHtmlEscaped()), i.value());
             }
 
-      foreach(KeySig* ks, customKeysigs)
-            ks->write(xml);
-
-      if (!selectionOnly) {
-            xml.stag("PageList");
-            foreach(Page* page, _pages)
-                  page->write(xml);
-            xml.etag();
-            }
-
-      foreach(const Part* part, _parts)
-            part->write(xml);
-
-      xml.curTrack = 0;
+      xml.setCurTrack(0);
       int staffStart;
       int staffEnd;
       MeasureBase* measureStart;
@@ -130,11 +177,20 @@ void Score::write(Xml& xml, bool selectionOnly)
       if (selectionOnly) {
             staffStart   = _selection.staffStart();
             staffEnd     = _selection.staffEnd();
+            // make sure we select full parts
+            Staff* sStaff = staff(staffStart);
+            Part* sPart = sStaff->part();
+            Staff* eStaff = staff(staffEnd - 1);
+            Part* ePart = eStaff->part();
+            staffStart = staffIdx(sPart);
+            staffEnd = staffIdx(ePart) + ePart->nstaves();
             measureStart = _selection.startSegment()->measure();
-            // include title frames:
-            while (measureStart->prev() && !measureStart->prev()->sectionBreak())
-                  measureStart = measureStart->prev();
-            measureEnd   = _selection.endSegment()->measure()->next();
+            if (measureStart->isMeasure() && toMeasure(measureStart)->isMMRest())
+                  measureStart = toMeasure(measureStart)->mmRestFirst();
+            if (_selection.endSegment())
+                  measureEnd   = _selection.endSegment()->measure()->next();
+            else
+                  measureEnd   = 0;
             }
       else {
             staffStart   = 0;
@@ -143,96 +199,165 @@ void Score::write(Xml& xml, bool selectionOnly)
             measureEnd   = 0;
             }
 
-      xml.trackDiff = -staffStart * VOICES;
-      for (int staffIdx = staffStart; staffIdx < staffEnd; ++staffIdx) {
-            xml.stag(QString("Staff id=\"%1\"").arg(staffIdx + 1));
-            xml.curTick  = measureStart->tick();
-            xml.tickDiff = xml.curTick;
-            xml.curTrack = staffIdx * VOICES;
-            for (MeasureBase* m = measureStart; m != measureEnd; m = m->next()) {
-                  if (m->type() == Element::MEASURE || staffIdx == 0)
-                        m->write(xml, staffIdx, staffIdx == staffStart);
-                  if (m->type() == Element::MEASURE)
-                        xml.curTick = m->tick() + m->ticks();
-                  }
-            xml.etag();
+      // Let's decide: write midi mapping to a file or not
+      masterScore()->checkMidiMapping();
+      for (const Part* part : _parts) {
+            if (!selectionOnly || ((staffIdx(part) >= staffStart) && (staffEnd >= staffIdx(part) + part->nstaves())))
+                  part->write(xml);
             }
-      xml.curTrack = -1;
-      if (!selectionOnly) {
-            foreach(Excerpt* excerpt, _excerpts) {
-                  if (excerpt->score() != this)
-                        excerpt->score()->write(xml, false);       // recursion
+
+      xml.setCurTrack(0);
+      xml.setTrackDiff(-staffStart * VOICES);
+      if (measureStart) {
+            for (int staffIdx = staffStart; staffIdx < staffEnd; ++staffIdx) {
+                  xml.stag(staff(staffIdx), QString("id=\"%1\"").arg(staffIdx + 1 - staffStart));
+                  xml.setCurTick(measureStart->tick());
+                  xml.setTickDiff(xml.curTick());
+                  xml.setCurTrack(staffIdx * VOICES);
+                  bool writeSystemElements = (staffIdx == staffStart);
+                  bool firstMeasureWritten = false;
+                  bool forceTimeSig = false;
+                  for (MeasureBase* m = measureStart; m != measureEnd; m = m->next()) {
+                        // force timesig if first measure and selectionOnly
+                        if (selectionOnly && m->isMeasure()) {
+                              if (!firstMeasureWritten) {
+                                    forceTimeSig = true;
+                                    firstMeasureWritten = true;
+                                    }
+                              else
+                                    forceTimeSig = false;
+                              }
+                        writeMeasure(xml, m, staffIdx, writeSystemElements, forceTimeSig);
+                        }
+                  xml.etag();
                   }
             }
-      if (parentScore())
-            xml.tag("name", name());
+      xml.setCurTrack(-1);
+      if (isMaster()) {
+            if (!selectionOnly) {
+                  for (const Excerpt* excerpt : excerpts()) {
+                        if (excerpt->partScore() != this)
+                              excerpt->partScore()->write(xml, false);       // recursion
+                        }
+                  }
+            }
+      else
+            xml.tag("name", excerpt()->title());
       xml.etag();
+
+      if (unhide)
+            endCmd(true);
       }
 
 //---------------------------------------------------------
-//   readStaff
+//   write
+//---------------------------------------------------------
+
+void Score::write(XmlWriter& xml, bool selectionOnly)
+      {
+      if (isMaster()) {
+            MasterScore* score = static_cast<MasterScore*>(this);
+            while (score->prev())
+                  score = score->prev();
+            while (score) {
+                  score->writeMovement(xml, selectionOnly);
+                  score = score->next();
+                  }
+            }
+      else
+            writeMovement(xml, selectionOnly);
+      }
+
+//---------------------------------------------------------
+//   Staff
 //---------------------------------------------------------
 
 void Score::readStaff(XmlReader& e)
       {
-      MeasureBase* mb = first();
-      int staff       = e.intAttribute("id", 1) - 1;
-      e.setTick(0);
+      int staff = e.intAttribute("id", 1) - 1;
+      int measureIdx = 0;
+      e.setCurrentMeasureIndex(0);
+      e.setTick(Fraction(0,1));
       e.setTrack(staff * VOICES);
 
-      while (e.readNextStartElement()) {
-            const QStringRef& tag(e.name());
+      if (staff == 0) {
+            while (e.readNextStartElement()) {
+                  const QStringRef& tag(e.name());
 
-            if (tag == "Measure") {
-                  Measure* measure = 0;
-                  if (staff == 0) {
+                  if (tag == "Measure") {
+                        Measure* measure = 0;
                         measure = new Measure(this);
                         measure->setTick(e.tick());
-                        add(measure);
-                        if (_mscVersion < 115) {
-                              const SigEvent& ev = sigmap()->timesig(measure->tick());
-                              measure->setLen(ev.timesig());
-                              measure->setTimesig(ev.nominal());
+                        e.setCurrentMeasureIndex(measureIdx++);
+                        //
+                        // inherit timesig from previous measure
+                        //
+                        Measure* m = e.lastMeasure(); // measure->prevMeasure();
+                        Fraction f(m ? m->timesig() : Fraction(4,4));
+                        measure->setTicks(f);
+                        measure->setTimesig(f);
+
+                        measure->read(e, staff);
+                        measure->checkMeasure(staff);
+                        if (!measure->isMMRest()) {
+                              measures()->add(measure);
+                              e.setLastMeasure(measure);
+                              e.setTick(measure->tick() + measure->ticks());
                               }
                         else {
-                              //
-                              // inherit timesig from previous measure
-                              //
-                              Measure* m = measure->prevMeasure();
-                              Fraction f(m ? m->timesig() : Fraction(4,4));
-                              measure->setLen(f);
-                              measure->setTimesig(f);
+                              // this is a multi measure rest
+                              // always preceded by the first measure it replaces
+                              Measure* m1 = e.lastMeasure();
+
+                              if (m1) {
+                                    m1->setMMRest(measure);
+                                    measure->setTick(m1->tick());
+                                    }
                               }
                         }
-                  else {
-                        while (mb) {
-                              if (mb->type() != Element::MEASURE) {
-                                    mb = mb->next();
-                                    }
-                              else {
-                                    measure = (Measure*)mb;
-                                    mb      = mb->next();
-                                    break;
-                                    }
-                              }
+                  else if (tag == "HBox" || tag == "VBox" || tag == "TBox" || tag == "FBox") {
+                        MeasureBase* mb = toMeasureBase(Element::name2Element(tag, this));
+                        mb->read(e);
+                        mb->setTick(e.tick());
+                        measures()->add(mb);
+                        }
+                  else if (tag == "tick")
+                        e.setTick(Fraction::fromTicks(fileDivision(e.readInt())));
+                  else
+                        e.unknown();
+                  }
+            }
+      else {
+            Measure* measure = firstMeasure();
+            while (e.readNextStartElement()) {
+                  const QStringRef& tag(e.name());
+
+                  if (tag == "Measure") {
                         if (measure == 0) {
-                              qDebug("Score::readStaff(): missing measure!\n");
+                              qDebug("Score::readStaff(): missing measure!");
                               measure = new Measure(this);
                               measure->setTick(e.tick());
-                              add(measure);
+                              measures()->add(measure);
+                              }
+                        e.setTick(measure->tick());
+                        e.setCurrentMeasureIndex(measureIdx++);
+                        measure->read(e, staff);
+                        measure->checkMeasure(staff);
+                        if (measure->isMMRest())
+                              measure = e.lastMeasure()->nextMeasure();
+                        else {
+                              e.setLastMeasure(measure);
+                              if (measure->mmRest())
+                                    measure = measure->mmRest();
+                              else
+                                    measure = measure->nextMeasure();
                               }
                         }
-                  measure->read(e, staff);
-                  e.setTick(measure->tick() + measure->ticks());
+                  else if (tag == "tick")
+                        e.setTick(Fraction::fromTicks(fileDivision(e.readInt())));
+                  else
+                        e.unknown();
                   }
-            else if (tag == "HBox" || tag == "VBox" || tag == "TBox" || tag == "FBox") {
-                  MeasureBase* mb = static_cast<MeasureBase*>(Element::name2Element(tag, this));
-                  mb->read(e);
-                  mb->setTick(e.tick());
-                  add(mb);
-                  }
-            else
-                  e.unknown();
             }
       }
 
@@ -245,46 +370,14 @@ void Score::readStaff(XmlReader& e)
 ///   Return true if OK and false on error.
 //---------------------------------------------------------
 
-bool Score::saveFile()
+bool MasterScore::saveFile()
       {
-      QString suffix = info.suffix();
-      if ((suffix != "mscx") && (suffix != "mscz")) {
-            QString s = info.filePath();
-            if (!suffix.isEmpty())
-                  s = s.left(s.size() - suffix.size());
-            else
-                  s += ".";
-            if (suffix == "msc")
-                  suffix = "mscx";        // silently change to mscx
-            else
-                  suffix = "mscz";
-            s += suffix;
-            info.setFile(s);
-            }
-
-      if (info.exists() && !info.isWritable()) {
-            QString s = QT_TRANSLATE_NOOP("file", "The following file is locked: \n%1 \n\nTry saving to a different location.");
-            MScore::lastError = s.arg(info.filePath());
+      if (readOnly())
             return false;
-            }
-
-      // if file was already saved in this session
-      // save but don't overwrite backup again
-
-      if (saved()) {
-            try {
-                  if (suffix == "msc" || suffix == "mscx")
-                        saveFile(info);
-                  else
-                        saveCompressedFile(info, false);
-                  }
-            catch (QString s) {
-                  MScore::lastError = s;
-                  return false;
-                  }
-            undo()->setClean();
-            setDirty(false);
-            return true;
+      QString suffix = info.suffix();
+      if (info.exists() && !info.isWritable()) {
+            MScore::lastError = tr("The following file is locked: \n%1 \n\nTry saving to a different location.").arg(info.filePath());
+            return false;
             }
       //
       // step 1
@@ -295,51 +388,77 @@ bool Score::saveFile()
       QString tempName = info.filePath() + QString(".temp");
       QFile temp(tempName);
       if (!temp.open(QIODevice::WriteOnly)) {
-            MScore::lastError = QT_TRANSLATE_NOOP("file", "Open Temp File\n")
-               + tempName + QT_TRANSLATE_NOOP("file", "\nfailed: ") + QString(strerror(errno));
+            MScore::lastError = tr("Open Temp File\n%1\nfailed: %2").arg(tempName, strerror(errno));
             return false;
             }
-      try {
-            if (suffix == "msc" || suffix == "mscx")
-                  saveFile(&temp, false);
-            else
-                  saveCompressedFile(&temp, info, false);
-            }
-      catch (QString s) {
-            MScore::lastError = s;
+      bool rv = suffix == "mscx" ? Score::saveFile(&temp, false) : Score::saveCompressedFile(&temp, info, false);
+      if (!rv) {
             return false;
             }
+
       if (temp.error() != QFile::NoError) {
-            MScore::lastError = QT_TRANSLATE_NOOP("file",
-               "MuseScore: Save File failed: ") + temp.errorString();
-            temp.close();
+            MScore::lastError = tr("Save File failed: %1").arg(temp.errorString());
             return false;
             }
       temp.close();
 
-      //
-      // step 2
-      // remove old backup file if exists
-      //
-      QDir dir(info.path());
-      QString backupName = QString(".") + info.fileName() + QString(",");
-      if (dir.exists(backupName)) {
-            if (!dir.remove(backupName)) {
-//                  QMessageBox::critical(mscore, tr("MuseScore: Save File"),
-//                     tr("removing old backup file ") + backupName + tr(" failed"));
-                  }
-            }
-
-      //
-      // step 3
-      // rename old file into backup
-      //
       QString name(info.filePath());
-      if (dir.exists(name)) {
-            if (!dir.rename(name, backupName)) {
-//                  QMessageBox::critical(mscore, tr("MuseScore: Save File"),
-//                     tr("renaming old file <")
-//                      + name + tr("> to backup <") + backupName + tr("> failed"));
+      QString basename(info.fileName());
+      QDir dir(info.path());
+      if (!saved()) {
+            // if file was already saved in this session
+            // save but don't overwrite backup again
+
+            //
+            // step 2
+            // remove old backup file if exists
+            //
+            QString backupName = QString(".") + info.fileName() + QString(",");
+            if (dir.exists(backupName)) {
+                  if (!dir.remove(backupName)) {
+//                      if (!MScore::noGui)
+//                            QMessageBox::critical(0, QObject::tr("Save File"),
+//                               tr("Removing old backup file %1 failed").arg(backupName));
+                        }
+                  }
+
+            //
+            // step 3
+            // rename old file into backup
+            //
+            if (dir.exists(basename)) {
+                  if (!dir.rename(basename, backupName)) {
+//                      if (!MScore::noGui)
+//                            QMessageBox::critical(0, tr("Save File"),
+//                               tr("Renaming old file <%1> to backup <%2> failed").arg(name, backupname);
+                        }
+                  }
+
+            QFileInfo fileBackup(dir, backupName);
+            _sessionStartBackupInfo = fileBackup;
+
+#ifdef Q_OS_WIN
+            QString backupNativePath = QDir::toNativeSeparators(fileBackup.absoluteFilePath());
+#if (defined (_MSCVER) || defined (_MSC_VER))
+   #if (defined (UNICODE))
+            SetFileAttributes((LPCTSTR)backupNativePath.unicode(), FILE_ATTRIBUTE_HIDDEN);
+   #else
+            // Use byte-based Windows function
+            SetFileAttributes((LPCTSTR)backupNativePath.toLocal8Bit(), FILE_ATTRIBUTE_HIDDEN);
+   #endif
+#else
+            SetFileAttributes((LPCTSTR)backupNativePath.toLocal8Bit(), FILE_ATTRIBUTE_HIDDEN);
+#endif
+#endif
+            }
+      else {
+            // file has previously been saved - remove the old file
+            if (dir.exists(basename)) {
+                  if (!dir.remove(basename)) {
+//                      if (!MScore::noGui)
+//                            QMessageBox::critical(0, tr("Save File"),
+//                               tr("Removing old file %1 failed").arg(name));
+                        }
                   }
             }
 
@@ -348,19 +467,17 @@ bool Score::saveFile()
       // rename temp name into file name
       //
       if (!QFile::rename(tempName, name)) {
-            MScore::lastError = QT_TRANSLATE_NOOP("file", "renaming temp. file <")
-               + tempName + QT_TRANSLATE_NOOP("file", "> to <") + name
-               + QT_TRANSLATE_NOOP("file", "> failed:\n")
-               + QString(strerror(errno));
+            MScore::lastError = tr("Renaming temp. file <%1> to <%2> failed:\n%3").arg(tempName, name, strerror(errno));
             return false;
             }
       // make file readable by all
       QFile::setPermissions(name, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadUser
          | QFile::ReadGroup | QFile::ReadOther);
 
-      undo()->setClean();
-      setDirty(false);
+      undoStack()->setClean();
       setSaved(true);
+      info.refresh();
+      update();
       return true;
       }
 
@@ -368,19 +485,58 @@ bool Score::saveFile()
 //   saveCompressedFile
 //---------------------------------------------------------
 
-void Score::saveCompressedFile(QFileInfo& info, bool onlySelection)
+bool Score::saveCompressedFile(QFileInfo& info, bool onlySelection)
       {
-      if (info.suffix().isEmpty())
-            info.setFile(info.filePath() + ".mscz");
-
+      if (readOnly() && info == *masterScore()->fileInfo())
+            return false;
       QFile fp(info.filePath());
       if (!fp.open(QIODevice::WriteOnly)) {
-            QString s = QString("Open File\n") + info.filePath() + QString("\nfailed: ")
-               + QString(strerror(errno));
-            throw(s);
+            MScore::lastError = tr("Open File\n%1\nfailed: %2").arg(info.filePath(), strerror(errno));
+            return false;
             }
-      saveCompressedFile(&fp, info, onlySelection);
-      fp.close();
+      return saveCompressedFile(&fp, info, onlySelection);
+      }
+
+//---------------------------------------------------------
+//   createThumbnail
+//---------------------------------------------------------
+
+QImage Score::createThumbnail()
+      {
+      LayoutMode mode = layoutMode();
+      setLayoutMode(LayoutMode::PAGE);
+      doLayout();
+
+      Page* page = pages().at(0);
+      QRectF fr  = page->abbox();
+      qreal mag  = 256.0 / qMax(fr.width(), fr.height());
+      int w      = int(fr.width() * mag);
+      int h      = int(fr.height() * mag);
+
+      QImage pm(w, h, QImage::Format_ARGB32_Premultiplied);
+
+      int dpm = lrint(DPMM * 1000.0);
+      pm.setDotsPerMeterX(dpm);
+      pm.setDotsPerMeterY(dpm);
+      pm.fill(0xffffffff);
+
+      double pr = MScore::pixelRatio;
+      MScore::pixelRatio = 1.0;
+
+      QPainter p(&pm);
+      p.setRenderHint(QPainter::Antialiasing, true);
+      p.setRenderHint(QPainter::TextAntialiasing, true);
+      p.scale(mag, mag);
+      print(&p, 0);
+      p.end();
+
+      MScore::pixelRatio = pr;
+
+      if (layoutMode() != mode) {
+            setLayoutMode(mode);
+            doLayout();
+            }
+      return pm;
       }
 
 //---------------------------------------------------------
@@ -388,20 +544,20 @@ void Score::saveCompressedFile(QFileInfo& info, bool onlySelection)
 //    file is already opened
 //---------------------------------------------------------
 
-void Score::saveCompressedFile(QIODevice* f, QFileInfo& info, bool onlySelection)
+bool Score::saveCompressedFile(QFileDevice* f, QFileInfo& info, bool onlySelection, bool doCreateThumbnail)
       {
-      QZipWriter uz(f);
+      MQZipWriter uz(f);
 
       QString fn = info.completeBaseName() + ".mscx";
       QBuffer cbuf;
       cbuf.open(QIODevice::ReadWrite);
-      Xml xml(&cbuf);
+      XmlWriter xml(this, &cbuf);
       xml << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
       xml.stag("container");
       xml.stag("rootfiles");
-      xml.stag(QString("rootfile full-path=\"%1\"").arg(Xml::xmlString(fn)));
+      xml.stag(QString("rootfile full-path=\"%1\"").arg(XmlWriter::xmlString(fn)));
       xml.etag();
-      foreach(ImageStoreItem* ip, imageStore) {
+      for (ImageStoreItem* ip : imageStore) {
             if (!ip->isUsed(this))
                   continue;
             QString path = QString("Pictures/") + ip->hashName();
@@ -411,32 +567,56 @@ void Score::saveCompressedFile(QIODevice* f, QFileInfo& info, bool onlySelection
       xml.etag();
       xml.etag();
       cbuf.seek(0);
-      uz.addDirectory("META-INF");
+      //uz.addDirectory("META-INF");
       uz.addFile("META-INF/container.xml", cbuf.data());
 
+      QBuffer dbuf;
+      dbuf.open(QIODevice::ReadWrite);
+      saveFile(&dbuf, true, onlySelection);
+      dbuf.seek(0);
+      uz.addFile(fn, dbuf.data());
+      f->flush(); // flush to preserve score data in case of
+                  // any failures on the further operations.
+
       // save images
-      uz.addDirectory("Pictures");
-      foreach(ImageStoreItem* ip, imageStore) {
+      //uz.addDirectory("Pictures");
+      for (ImageStoreItem* ip : imageStore) {
             if (!ip->isUsed(this))
                   continue;
             QString path = QString("Pictures/") + ip->hashName();
             uz.addFile(path, ip->buffer());
             }
+
+      // create thumbnail
+      if (doCreateThumbnail && !pages().isEmpty()) {
+            QImage pm = createThumbnail();
+
+            QByteArray ba;
+            QBuffer b(&ba);
+            if (!b.open(QIODevice::WriteOnly))
+                  qDebug("open buffer failed");
+            if (!pm.save(&b, "PNG"))
+                  qDebug("save failed");
+            uz.addFile("Thumbnails/thumbnail.png", ba);
+            }
+
 #ifdef OMR
       //
       // save OMR page images
       //
-      if (_omr) {
-            int n = _omr->numPages();
+      if (masterScore()->omr()) {
+            int n = masterScore()->omr()->numPages();
             for (int i = 0; i < n; ++i) {
                   QString path = QString("OmrPages/page%1.png").arg(i+1);
-                  QBuffer cbuf;
-                  OmrPage* page = _omr->page(i);
-                  QImage image = page->image();
-                  if (!image.save(&cbuf, "PNG"))
-                        throw(QString("cannot create image"));
-                  uz.addFile(path, cbuf.data());
-                  cbuf.close();
+                  QBuffer cbuf1;
+                  OmrPage* page = masterScore()->omr()->page(i);
+                  const QImage& image = page->image();
+                  if (!image.save(&cbuf1, "PNG")) {
+                        MScore::lastError = tr("Save file: cannot save image (%1x%2)").arg(image.width(), image.height());
+                        return false;
+                        }
+                  uz.addFile(path, cbuf1.data());
+                  cbuf1.close();
                   }
             }
 #endif
@@ -446,12 +626,8 @@ void Score::saveCompressedFile(QIODevice* f, QFileInfo& info, bool onlySelection
       if (_audio)
             uz.addFile("audio.ogg", _audio->data());
 
-      QBuffer dbuf;
-      dbuf.open(QIODevice::ReadWrite);
-      saveFile(&dbuf, true, onlySelection);
-      dbuf.seek(0);
-      uz.addFile(fn, dbuf.data());
       uz.close();
+      return true;
       }
 
 //---------------------------------------------------------
@@ -461,15 +637,16 @@ void Score::saveCompressedFile(QIODevice* f, QFileInfo& info, bool onlySelection
 
 bool Score::saveFile(QFileInfo& info)
       {
+      if (readOnly() && info == *masterScore()->fileInfo())
+            return false;
       if (info.suffix().isEmpty())
             info.setFile(info.filePath() + ".mscx");
       QFile fp(info.filePath());
       if (!fp.open(QIODevice::WriteOnly)) {
-            QString s = QString("Open File\n") + info.filePath() + QString("\nfailed: ")
-               + QString(strerror(errno));
+            MScore::lastError = tr("Open File\n%1\nfailed: %2").arg(info.filePath(), strerror(errno));
             return false;
             }
-      saveFile(&fp, false);
+      saveFile(&fp, false, false);
       fp.close();
       return true;
       }
@@ -478,14 +655,18 @@ bool Score::saveFile(QFileInfo& info)
 //   loadStyle
 //---------------------------------------------------------
 
-bool Score::loadStyle(const QString& fn)
+bool Score::loadStyle(const QString& fn, bool ignore)
       {
       QFile f(fn);
       if (f.open(QIODevice::ReadOnly)) {
-            MStyle st = _style;
-            if (st.load(&f)) {
-                  _undo->push(new ChangeStyle(this, st));
+            MStyle st = style();
+            if (st.load(&f, ignore)) {
+                  undo(new ChangeStyle(this, st));
                   return true;
+                  }
+             else {
+                  MScore::lastError = tr("The style file is not compatible with this version of MuseScore.");
+                  return false;
                   }
             }
       MScore::lastError = strerror(errno);
@@ -505,20 +686,17 @@ bool Score::saveStyle(const QString& name)
             info.setFile(info.filePath() + ext);
       QFile f(info.filePath());
       if (!f.open(QIODevice::WriteOnly)) {
-            MScore::lastError = QT_TRANSLATE_NOOP("file", "Open Style File\n")
-               + f.fileName() + QT_TRANSLATE_NOOP("file", "\nfailed: ")
-               + QString(strerror(errno));
+            MScore::lastError = tr("Open Style File\n%1\nfailed: %2").arg(info.filePath(), strerror(errno));
             return false;
             }
 
-      Xml xml(&f);
+      XmlWriter xml(this, &f);
       xml.header();
       xml.stag("museScore version=\"" MSC_VERSION "\"");
-      _style.save(xml, false);     // save complete style
+      style().save(xml, false);     // save complete style
       xml.etag();
       if (f.error() != QFile::NoError) {
-            MScore::lastError = QT_TRANSLATE_NOOP("file", "Write Style failed: ")
-               + f.errorString();
+            MScore::lastError = tr("Write Style failed: %1").arg(f.errorString());
             return false;
             }
       return true;
@@ -529,28 +707,77 @@ bool Score::saveStyle(const QString& name)
 //    return true on success
 //---------------------------------------------------------
 
-extern QString revision;
+// extern QString revision;
+QString revision = "3.2.3";
 
-void Score::saveFile(QIODevice* f, bool msczFormat, bool onlySelection)
+bool Score::saveFile(QIODevice* f, bool msczFormat, bool onlySelection)
       {
-      Xml xml(f);
-      xml.writeOmr = msczFormat;
+      XmlWriter xml(this, f);
+      xml.setWriteOmr(msczFormat);
       xml.header();
-      xml.stag("museScore version=\"" MSC_VERSION "\"");
-      if (!_testMode) {
+      if (!MScore::testMode) {
+            xml.stag("museScore version=\"" MSC_VERSION "\"");
             xml.tag("programVersion", VERSION);
             xml.tag("programRevision", revision);
             }
+      else
+            xml.stag("museScore version=\"3.01\"");
       write(xml, onlySelection);
       xml.etag();
-      if (!parentScore())
-            _revisions->write(xml);
-      if(!onlySelection) {
+      if (isMaster())
+            masterScore()->revisions()->write(xml);
+      if (!onlySelection) {
             //update version values for i.e. plugin access
             _mscoreVersion = VERSION;
-            _mscoreRevision = revision.toInt();
+            _mscoreRevision = revision.toInt(0, 16);
             _mscVersion = MSCVERSION;
             }
+      return true;
+      }
+
+//---------------------------------------------------------
+//   readRootFile
+//---------------------------------------------------------
+
+QString readRootFile(MQZipReader* uz, QList<QString>& images)
+      {
+      QString rootfile;
+
+      QByteArray cbuf = uz->fileData("META-INF/container.xml");
+      if (cbuf.isEmpty()) {
+            qDebug("can't find container.xml");
+            return rootfile;
+            }
+
+      XmlReader e(cbuf);
+
+      while (e.readNextStartElement()) {
+            if (e.name() != "container") {
+                  e.unknown();
+                  continue;
+                  }
+            while (e.readNextStartElement()) {
+                  if (e.name() != "rootfiles") {
+                        e.unknown();
+                        continue;
+                        }
+                  while (e.readNextStartElement()) {
+                        const QStringRef& tag(e.name());
+
+                        if (tag == "rootfile") {
+                              if (rootfile.isEmpty()) {
+                                    rootfile = e.attribute("full-path");
+                                    e.skipCurrentElement();
+                                    }
+                              }
+                        else if (tag == "file")
+                              images.append(e.readElementText());
+                        else
+                              e.unknown();
+                        }
+                  }
+            }
+      return rootfile;
       }
 
 //---------------------------------------------------------
@@ -558,59 +785,39 @@ void Score::saveFile(QIODevice* f, bool msczFormat, bool onlySelection)
 //    return false on error
 //---------------------------------------------------------
 
-Score::FileError Score::loadCompressedMsc(QIODevice* dev, bool ignoreVersionError)
+Score::FileError MasterScore::loadCompressedMsc(QIODevice* io, bool ignoreVersionError)
       {
-      QZipReader uz(dev);
-      return loadCompressedMsc(uz, ignoreVersionError);
-      }
+      MQZipReader uz(io);
 
-Score::FileError Score::loadCompressedMsc(QString name, bool ignoreVersionError)
-      {
-      QZipReader uz(name);
-      if (!uz.exists()) {
-            qDebug("loadCompressedMsc: <%s> not found\n", qPrintable(name));
-            MScore::lastError = QT_TRANSLATE_NOOP("file", "file not found");
-            return FILE_NOT_FOUND;
-            }
-      return loadCompressedMsc(uz, ignoreVersionError);
-      }
-
-Score::FileError Score::loadCompressedMsc(QZipReader& uz, bool ignoreVersionError)
-      {
-      QByteArray cbuf = uz.fileData("META-INF/container.xml");
-
-      QString rootfile;
-      XmlReader e(cbuf);
-      while (e.readNextStartElement()) {
-            const QStringRef& tag(e.name());
-
-            if (tag == "rootfile") {
-                  rootfile = e.attribute("full-path");
-                  e.skipCurrentElement();
-                  }
-            else if (tag == "file") {
-                  QString image(e.readElementText());
-                  QByteArray dbuf = uz.fileData(image);
-                  imageStore.add(image, dbuf);
-                  }
-            }
+      QList<QString> sl;
+      QString rootfile = readRootFile(&uz, sl);
       if (rootfile.isEmpty())
-            return FILE_NO_ROOTFILE;
+            return FileError::FILE_NO_ROOTFILE;
+
+      //
+      // load images
+      //
+      if (!MScore::noImages) {
+            foreach(const QString& s, sl) {
+                  QByteArray dbuf = uz.fileData(s);
+                  imageStore.add(s, dbuf);
+                  }
+            }
 
       QByteArray dbuf = uz.fileData(rootfile);
       if (dbuf.isEmpty()) {
-//            qDebug("root file <%s> is empty", qPrintable(rootfile));
-            QList<QZipReader::FileInfo> fil = uz.fileInfoList();
-            foreach(const QZipReader::FileInfo& fi, fil) {
+            QVector<MQZipReader::FileInfo> fil = uz.fileInfoList();
+            foreach(const MQZipReader::FileInfo& fi, fil) {
                   if (fi.filePath.endsWith(".mscx")) {
                         dbuf = uz.fileData(fi.filePath);
                         break;
                         }
                   }
             }
-      e.clear();
-      e.addData(dbuf);
-      e.setDocName(info.completeBaseName());
+      XmlReader e(dbuf);
+      QBuffer readAheadBuf(&dbuf);
+      e.setReadAheadDevice(&readAheadBuf);
+      e.setDocName(masterScore()->fileInfo()->completeBaseName());
 
       FileError retval = read1(e, ignoreVersionError);
 
@@ -618,14 +825,14 @@ Score::FileError Score::loadCompressedMsc(QZipReader& uz, bool ignoreVersionErro
       //
       // load OMR page images
       //
-      if (_omr) {
-            int n = _omr->numPages();
+      if (masterScore()->omr()) {
+            int n = masterScore()->omr()->numPages();
             for (int i = 0; i < n; ++i) {
                   QString path = QString("OmrPages/page%1.png").arg(i+1);
-                  QByteArray dbuf = uz.fileData(path);
-                  OmrPage* page = _omr->page(i);
+                  QByteArray dbuf1 = uz.fileData(path);
+                  OmrPage* page = masterScore()->omr()->page(i);
                   QImage image;
-                  if (image.loadFromData(dbuf, "PNG")) {
+                  if (image.loadFromData(dbuf1, "PNG")) {
                         page->setImage(image);
                         }
                   else
@@ -636,9 +843,9 @@ Score::FileError Score::loadCompressedMsc(QZipReader& uz, bool ignoreVersionErro
       //
       //  read audio
       //
-      if (_audio) {
-            QByteArray dbuf = uz.fileData("audio.ogg");
-            _audio->setData(dbuf);
+      if (audio()) {
+            QByteArray dbuf1 = uz.fileData("audio.ogg");
+            audio()->setData(dbuf1);
             }
       return retval;
       }
@@ -648,28 +855,35 @@ Score::FileError Score::loadCompressedMsc(QZipReader& uz, bool ignoreVersionErro
 //    return true on success
 //---------------------------------------------------------
 
-Score::FileError Score::loadMsc(QString name, bool ignoreVersionError)
+Score::FileError MasterScore::loadMsc(QString name, bool ignoreVersionError)
       {
-      info.setFile(name);
-
-      if (name.endsWith(".mscz"))
-            return loadCompressedMsc(name, ignoreVersionError);
-
       QFile f(name);
       if (!f.open(QIODevice::ReadOnly)) {
             MScore::lastError = f.errorString();
-            return FILE_OPEN_ERROR;
+            return FileError::FILE_OPEN_ERROR;
             }
+      return loadMsc(name, &f, ignoreVersionError);
+      }
 
-      XmlReader xml(&f);
-      return read1(xml, ignoreVersionError);
+Score::FileError MasterScore::loadMsc(QString name, QIODevice* io, bool ignoreVersionError)
+      {
+      ScoreLoad sl;
+      fileInfo()->setFile(name);
+
+      if (name.endsWith(".mscz"))
+            return loadCompressedMsc(io, ignoreVersionError);
+      else {
+            XmlReader r(io);
+            r.setReadAheadDevice(io);
+            return read1(r, ignoreVersionError);
+            }
       }
 
 //---------------------------------------------------------
 //   parseVersion
 //---------------------------------------------------------
 
-void Score::parseVersion(const QString& val)
+void MasterScore::parseVersion(const QString& val)
       {
       QRegExp re("(\\d+)\\.(\\d+)\\.(\\d+)");
       int v1, v2, v3, rv1, rv2, rv3;
@@ -689,7 +903,7 @@ void Score::parseVersion(const QString& val)
                               int currentVersion = v1 * 10000 + v2 * 100 + v3;
                               int readVersion = rv1 * 10000 + rv2 * 100 + rv3;
                               if (readVersion > currentVersion) {
-                                    qDebug("read future version\n");
+                                    qDebug("read future version");
                                     }
                               }
                         }
@@ -704,17 +918,17 @@ void Score::parseVersion(const QString& val)
                                     int currentVersion = v1 * 10000 + v2 * 100 + v3;
                                     int readVersion = rv1 * 10000 + rv2 * 100;
                                     if (readVersion > currentVersion) {
-                                          qDebug("read future version\n");
+                                          qDebug("read future version");
                                           }
                                     }
                               }
                         else
-                              qDebug("1cannot parse <%s>\n", qPrintable(val));
+                              qDebug("1cannot parse <%s>", qPrintable(val));
                         }
                   }
             }
       else
-            qDebug("2cannot parse <%s>\n", VERSION);
+            qDebug("2cannot parse <%s>", VERSION);
       }
 
 //---------------------------------------------------------
@@ -722,374 +936,37 @@ void Score::parseVersion(const QString& val)
 //    return true on success
 //---------------------------------------------------------
 
-Score::FileError Score::read1(XmlReader& e, bool ignoreVersionError)
+Score::FileError MasterScore::read1(XmlReader& e, bool ignoreVersionError)
       {
-      _elinks.clear();
-
       while (e.readNextStartElement()) {
             if (e.name() == "museScore") {
                   const QString& version = e.attribute("version");
                   QStringList sl = version.split('.');
-                  _mscVersion = sl[0].toInt() * 100 + sl[1].toInt();
+                  setMscVersion(sl[0].toInt() * 100 + sl[1].toInt());
 
                   if (!ignoreVersionError) {
                         QString message;
-                        if (_mscVersion > MSCVERSION)
-                              return FILE_TOO_NEW;
-                        if (_mscVersion < 114)
-                              return FILE_TOO_OLD;
+                        if (mscVersion() > MSCVERSION)
+                              return FileError::FILE_TOO_NEW;
+                        if (mscVersion() < 114)
+                              return FileError::FILE_TOO_OLD;
+                        if (mscVersion() == 300)
+                              return FileError::FILE_OLD_300_FORMAT;
                         }
-
-                  if (_mscVersion <= 114)
-                        return read114(e);
-                  while (e.readNextStartElement()) {
-                        const QStringRef& tag(e.name());
-                        if (tag == "programVersion") {
-                              _mscoreVersion = e.readElementText();
-                              parseVersion(_mscoreVersion);
-                              }
-                        else if (tag == "programRevision")
-                              _mscoreRevision = e.readInt();
-                        else if (tag == "Score")
-                              read(e);
-                        else if (tag == "Revision") {
-                              Revision* revision = new Revision;
-                              revision->read(e);
-                              _revisions->add(revision);
-                              }
-                        else
-                              e.unknown();
-                        }
-                  }
-            else
-                  e.unknown();
-            }
-      int id = 1;
-      foreach(LinkedElements* le, _elinks)
-            le->setLid(this, id++);
-      _elinks.clear();
-
-// _mscVersion is needed used during layout
-//      _mscVersion = MSCVERSION;     // for later drag & drop usage
-
-      return FILE_NO_ERROR;
-      }
-
-//---------------------------------------------------------
-//   read
-//    return false on error
-//---------------------------------------------------------
-
-bool Score::read(XmlReader& e)
-      {
-      if (parentScore())
-            setMscVersion(parentScore()->mscVersion());
-
-      while (e.readNextStartElement()) {
-            e.setTrack(-1);
-            const QStringRef& tag(e.name());
-            if (tag == "Staff")
-                  readStaff(e);
-            else if (tag == "KeySig") {
-                  KeySig* ks = new KeySig(this);
-                  ks->read(e);
-                  customKeysigs.append(ks);
-                  }
-            else if (tag == "StaffType") {
-                  int idx        = e.intAttribute("idx");
-                  StaffType* ost = staffType(idx);
-                  StaffType* st;
-                  if (ost)
-                        st = ost->clone();
-                  else {
-                        QString group  = e.attribute("group", "pitched");
-                        if (group == "percussion")
-                              st  = new StaffTypePercussion();
-                        else if (group == "tablature")
-                              st  = new StaffTypeTablature();
-                        else
-                              st  = new StaffTypePitched();
-                        }
-                  st->read(e);
-                  st->setBuildin(false);
-                  addStaffType(idx, st);
-                  }
-            else if (tag == "siglist")
-                  _sigmap->read(e, _fileDivision);
-            else if (tag == "programVersion") {
-                  _mscoreVersion = e.readElementText();
-                  parseVersion(_mscoreVersion);
-                  }
-            else if (tag == "programRevision")
-                  _mscoreRevision = e.readInt();
-            else if (tag == "Omr") {
-#ifdef OMR
-                  _omr = new Omr(this);
-                  _omr->read(e);
-#endif
-                  }
-            else if (tag == "Audio") {
-                  _audio = new Audio;
-                  _audio->read(e);
-                  }
-            else if (tag == "showOmr")
-                  _showOmr = e.readInt();
-            else if (tag == "playMode")
-                  _playMode = PlayMode(e.readInt());
-            else if (tag == "LayerTag") {
-                  int id = e.intAttribute("id");
-                  const QString& tag = e.attribute("tag");
-                  QString val(e.readElementText());
-                  if (id >= 0 && id < 32) {
-                        _layerTags[id] = tag;
-                        _layerTagComments[id] = val;
-                        }
-                  }
-            else if (tag == "Layer") {
-                  Layer layer;
-                  layer.name = e.attribute("name");
-                  layer.tags = e.attribute("mask").toUInt();
-                  _layer.append(layer);
-                  }
-            else if (tag == "currentLayer")
-                  _currentLayer = e.readInt();
-            else if (tag == "SyntiSettings") {
-                  _syntiState.clear();
-                  _syntiState.read(e);
-                  }
-            else if (tag == "Spatium")
-                  _style.setSpatium (e.readDouble() * MScore::DPMM); // obsolete, moved to Style
-            else if (tag == "page-offset")            // obsolete, moved to Score
-                  setPageNumberOffset(e.readInt());
-            else if (tag == "Division")
-                  _fileDivision = e.readInt();
-            else if (tag == "showInvisible")
-                  _showInvisible = e.readInt();
-            else if (tag == "showUnprintable")
-                  _showUnprintable = e.readInt();
-            else if (tag == "showFrames")
-                  _showFrames = e.readInt();
-            else if (tag == "showMargins")
-                  _showPageborders = e.readInt();
-            else if (tag == "Style") {
-                  qreal sp = _style.spatium();
-                  _style.load(e);
-                  // if (_layoutMode == LayoutFloat || _layoutMode == LayoutSystem) {
-                  if (_layoutMode == LayoutFloat) {
-                        // style should not change spatium in
-                        // float mode
-                        _style.setSpatium(sp);
-                        }
-                  }
-            else if (tag == "copyright" || tag == "rights") {
-                  Text* text = new Text(this);
-                  text->read(e);
-                  setMetaTag("copyright", text->getText());
-                  delete text;
-                  }
-            else if (tag == "movement-number")
-                  setMetaTag("movementNumber", e.readElementText());
-            else if (tag == "movement-title")
-                  setMetaTag("movementTitle", e.readElementText());
-            else if (tag == "work-number")
-                  setMetaTag("workNumber", e.readElementText());
-            else if (tag == "work-title")
-                  setMetaTag("workTitle", e.readElementText());
-            else if (tag == "source")
-                  setMetaTag("source", e.readElementText());
-            else if (tag == "metaTag") {
-                  QString name = e.attribute("name");
-                  setMetaTag(name, e.readElementText());
-                  }
-            else if (tag == "Part") {
-                  Part* part = new Part(this);
-                  part->read(e);
-                  _parts.push_back(part);
-                  }
-            else if (tag == "Slur") {
-                  Slur* slur = new Slur(this);
-                  slur->read(e);
-                  e.addSpanner(slur);
-                  }
-            else if (tag == "Excerpt") {
-                  Excerpt* ex = new Excerpt(this);
-                  ex->read(e);
-                  _excerpts.append(ex);
-                  }
-            else if (tag == "Beam") {
-                  Beam* beam = new Beam(this);
-                  beam->read(e);
-                  beam->setParent(0);
-                  // _beams.append(beam);
-                  }
-            else if (tag == "Score") {          // recursion
-                  Score* s = new Score(style());
-                  s->setParentScore(this);
-                  s->read(e);
-                  addExcerpt(s);
-                  }
-            else if (tag == "PageList") {
-                  while (e.readNextStartElement()) {
-                        if (e.name() == "Page") {
-                              Page* page = new Page(this);
-                              _pages.append(page);
-                              page->read(e);
-                              }
-                        else
-                              e.unknown();
-                        }
-                  }
-            else if (tag == "name")
-                  setName(e.readElementText());
-            else if (tag == "page-layout") {    // obsolete
-                  if (_layoutMode != LayoutFloat && _layoutMode != LayoutSystem) {
-                        PageFormat pf;
-                        pf.copy(*pageFormat());
-                        pf.read(e);
-                        setPageFormat(pf);
-                        }
+                  Score::FileError error;
+                  if (mscVersion() <= 114)
+                        error = read114(e);
+                  else if (mscVersion() <= 207)
+                        error = read206(e);
                   else
-                        e.skipCurrentElement();
+                        error = read301(e);
+                  setExcerptsChanged(false);
+                  return error;
                   }
-            else if (tag == "cursorTrack")
-                  e.skipCurrentElement();
             else
                   e.unknown();
             }
-
-      // check slurs
-      foreach(Spanner* s, e.spanner()) {
-            if (!s->startElement() || !s->endElement()) {
-                  qDebug("remove incomplete Spanner %s", s->name());
-                  switch (s->anchor()) {
-                        case Spanner::ANCHOR_SEGMENT: {
-                              if (s->startElement()) {
-                                    Segment* seg = static_cast<Segment*>(s->startElement());
-                                    seg->removeSpannerFor(s);
-                                    }
-                              if (s->endElement()) {
-                                    Segment* seg = static_cast<Segment*>(s->endElement());
-                                    seg->removeSpannerBack(s);
-                                    }
-                              Segment* seg = static_cast<Segment*>(s->parent());
-                              if (seg->isEmpty())
-                                    seg->measure()->remove(seg);
-                              delete s;
-                              }
-                              break;
-                        case Spanner::ANCHOR_CHORD:
-                              if (s->startElement()) {
-                                    ChordRest* cr = static_cast<ChordRest*>(s->startElement());
-                                    cr->removeSpannerFor(s);
-                                    }
-                              if (s->endElement()) {
-                                    ChordRest* cr = static_cast<ChordRest*>(s->endElement());
-                                    cr->removeSpannerBack(s);
-                                    }
-                              delete s;
-                              break;
-
-                        case Spanner::ANCHOR_NOTE:
-                        case Spanner::ANCHOR_MEASURE:
-                              break;
-                        }
-                  continue;
-                  }
-            if (s->type() != Element::SLUR)
-                  continue;
-
-            Slur* slur = static_cast<Slur*>(s);
-
-            ChordRest* cr1 = (ChordRest*)(slur->startElement());
-            ChordRest* cr2 = (ChordRest*)(slur->endElement());
-            if (cr1->tick() > cr2->tick()) {
-                  qDebug("Slur invalid start-end tick %d-%d\n", cr1->tick(), cr2->tick());
-                  slur->setStartElement(cr2);
-                  slur->setEndElement(cr1);
-                  }
-#if 1 // DEBUG
-            int n1 = 0;
-            int n2 = 0;
-            for (Spanner* s = cr1->spannerFor(); s; s = s->next()) {
-                  if (s == slur)
-                        ++n1;
-                  }
-            for (Spanner* s = cr2->spannerBack(); s; s = s->next()) {
-                  if (s == slur)
-                        ++n2;
-                  }
-            if (n1 != 1 || n2 != 1)
-                  qDebug("Slur references bad: %d %d", n1, n2);
-#endif
-            }
-      connectTies();
-
-      searchSelectedElements();
-
-      _fileDivision = MScore::division;
-
-      //
-      //    sanity check for barLineSpan
-      //
-      foreach(Staff* st, _staves) {
-            int barLineSpan = st->barLineSpan();
-            int idx = staffIdx(st);
-            int n = nstaves();
-            if (idx + barLineSpan > n) {
-                  qDebug("bad span: idx %d  span %d staves %d\n", idx, barLineSpan, n);
-                  st->setBarLineSpan(n - idx);
-                  }
-            // check spanFrom
-            if(st->barLineFrom() < MIN_BARLINE_SPAN_FROMTO)
-                  st->setBarLineFrom(MIN_BARLINE_SPAN_FROMTO);
-            if(st->barLineFrom() > st->lines()*2)
-                  st->setBarLineFrom(st->lines()*2);
-            // check spanTo
-            Staff* stTo = st->barLineSpan() <= 1 ? st : staff(idx + st->barLineSpan() - 1);
-            // 1-line staves have special bar line spans
-            int maxBarLineTo        = stTo->lines() == 1 ? BARLINE_SPAN_1LINESTAFF_TO : stTo->lines()*2;
-            int defaultBarLineTo    = stTo->lines() == 1 ? BARLINE_SPAN_1LINESTAFF_TO : (stTo->lines() - 1) * 2;
-            if(st->barLineTo() == UNKNOWN_BARLINE_TO)
-                  st->setBarLineTo(defaultBarLineTo);
-            if(st->barLineTo() < MIN_BARLINE_SPAN_FROMTO)
-                  st->setBarLineTo(MIN_BARLINE_SPAN_FROMTO);
-            if(st->barLineTo() > maxBarLineTo)
-                  st->setBarLineTo(maxBarLineTo);
-            // on single staff span, check spanFrom and spanTo are distant enough
-            if(st->barLineSpan() == 1) {
-                  if(st->barLineTo() - st->barLineFrom() < MIN_BARLINE_FROMTO_DIST) {
-                        st->setBarLineFrom(0);
-                        st->setBarLineTo(defaultBarLineTo);
-                        }
-                  }
-            }
-
-      if (_omr == 0)
-            _showOmr = false;
-
-      //
-      // check for soundfont,
-      // add default soundfont if none found
-      // (for compatibility with old scores)
-      //
-      bool hasSoundfont = false;
-      foreach(const SyntiParameter& sp, _syntiState) {
-            if (sp.name() == "soundfont") {
-                  QFileInfo fi(sp.sval());
-                  if(fi.exists())
-                        hasSoundfont = true;
-                  }
-            }
-      if (!hasSoundfont)
-            _syntiState.append(SyntiParameter("soundfont", MScore::soundFont));
-
-      fixTicks();
-      renumberMeasures();
-      rebuildMidiMapping();
-      updateChannel();
-      updateNotes();    // only for parts needed?
-      createPlayEvents();
-      return true;
+      return FileError::FILE_CORRUPTED;
       }
 
 //---------------------------------------------------------
@@ -1099,13 +976,13 @@ bool Score::read(XmlReader& e)
 void Score::print(QPainter* painter, int pageNo)
       {
       _printing  = true;
+      MScore::pdfPrinting = true;
       Page* page = pages().at(pageNo);
       QRectF fr  = page->abbox();
 
-      QList<const Element*> ell = page->items(fr);
+      QList<Element*> ell = page->items(fr);
       qStableSort(ell.begin(), ell.end(), elementLessThan);
-      foreach(const Element* e, ell) {
-            e->itemDiscovered = 0;
+      for (const Element* e : ell) {
             if (!e->visible())
                   continue;
             painter->save();
@@ -1113,6 +990,7 @@ void Score::print(QPainter* painter, int pageNo)
             e->draw(painter);
             painter->restore();
             }
+      MScore::pdfPrinting = false;
       _printing = false;
       }
 
@@ -1120,40 +998,16 @@ void Score::print(QPainter* painter, int pageNo)
 //   readCompressedToBuffer
 //---------------------------------------------------------
 
-QByteArray Score::readCompressedToBuffer()
+QByteArray MasterScore::readCompressedToBuffer()
       {
-      QZipReader uz(filePath());
-
-      QByteArray cbuf = uz.fileData("META-INF/container.xml");
-
-      XmlReader e(cbuf);
-      QString rootfile;
-      QList<QString> images;
-
-      while (e.readNextStartElement()) {
-            if (e.name() != "container") {
-                  e.unknown();
-                  continue;
-                  }
-            while (e.readNextStartElement()) {
-                  if (e.name() != "rootfiles") {
-                        e.unknown();
-                        continue;
-                        }
-                  while (e.readNextStartElement()) {
-                        const QStringRef& tag(e.name());
-
-                        if (tag == "rootfile") {
-                              if (rootfile.isEmpty())
-                                    rootfile = e.attribute("full-path");
-                              }
-                        else if (tag == "file")
-                              images.append(e.readElementText());
-                        else
-                              e.unknown();
-                        }
-                  }
+      MQZipReader uz(info.filePath());
+      if (!uz.exists()) {
+            qDebug("Score::readCompressedToBuffer: cannot read zip file");
+            return QByteArray();
             }
+      QList<QString> images;
+      QString rootfile = readRootFile(&uz, images);
+
       //
       // load images
       //
@@ -1163,7 +1017,7 @@ QByteArray Score::readCompressedToBuffer()
             }
 
       if (rootfile.isEmpty()) {
-            qDebug("can't find rootfile in: %s\n", qPrintable(filePath()));
+            qDebug("=can't find rootfile in: %s", qPrintable(info.filePath()));
             return QByteArray();
             }
       return uz.fileData(rootfile);
@@ -1173,7 +1027,7 @@ QByteArray Score::readCompressedToBuffer()
 //   readToBuffer
 //---------------------------------------------------------
 
-QByteArray Score::readToBuffer()
+QByteArray MasterScore::readToBuffer()
       {
       QByteArray ba;
       QString cs  = info.suffix();
@@ -1182,7 +1036,7 @@ QByteArray Score::readToBuffer()
             ba = readCompressedToBuffer();
             }
       if (cs.toLower() == "msc" || cs.toLower() == "mscx") {
-            QFile f(filePath());
+            QFile f(info.filePath());
             if (f.open(QIODevice::ReadOnly)) {
                   ba = f.readAll();
                   f.close();
@@ -1198,7 +1052,7 @@ QByteArray Score::readToBuffer()
 void Score::createRevision()
       {
 #if 0
-qDebug("createRevision\n");
+qDebug("createRevision");
       QBuffer dbuf;
       dbuf.open(QIODevice::ReadWrite);
       saveFile(&dbuf, false, false);
@@ -1215,9 +1069,50 @@ qDebug("createRevision\n");
       r->setId("1");
       _revisions->add(r);
 
-//      qDebug("patch:\n%s\n==========\n", qPrintable(patch));
+//      qDebug("patch:\n%s\n==========", qPrintable(patch));
       //
 #endif
+      }
+
+//---------------------------------------------------------
+//   writeVoiceMove
+//    write <move> and starting <voice> tags to denote
+//    change in position.
+//    Returns true if <voice> tag was written.
+//---------------------------------------------------------
+
+static bool writeVoiceMove(XmlWriter& xml, Segment* seg, const Fraction& startTick, int track, int* lastTrackWrittenPtr)
+      {
+      bool voiceTagWritten = false;
+      int& lastTrackWritten = *lastTrackWrittenPtr;
+      if ((lastTrackWritten < track) && !xml.clipboardmode()) {
+            while (lastTrackWritten < (track - 1)) {
+                  xml.tagE("voice");
+                  ++lastTrackWritten;
+                  }
+            xml.stag("voice");
+            xml.setCurTick(startTick);
+            xml.setCurTrack(track);
+            ++lastTrackWritten;
+            voiceTagWritten = true;
+            }
+
+      if ((xml.curTick() != seg->tick()) || (track != xml.curTrack())) {
+            Location curr = Location::absolute();
+            Location dest = Location::absolute();
+            curr.setFrac(xml.curTick());
+            dest.setFrac(seg->tick());
+            curr.setTrack(xml.curTrack());
+            dest.setTrack(track);
+
+            dest.toRelative(curr);
+            dest.write(xml);
+
+            xml.setCurTick(seg->tick());
+            xml.setCurTrack(track);
+            }
+
+      return voiceTagWritten;
       }
 
 //---------------------------------------------------------
@@ -1226,129 +1121,198 @@ qDebug("createRevision\n");
 //          can be zero
 //---------------------------------------------------------
 
-void Score::writeSegments(Xml& xml, const Measure* m, int strack, int etrack,
-   Segment* fs, Segment* ls, bool writeSystemElements)
+void Score::writeSegments(XmlWriter& xml, int strack, int etrack,
+   Segment* sseg, Segment* eseg, bool writeSystemElements, bool forceTimeSig)
       {
+      Fraction startTick = xml.curTick();
+      Fraction endTick   = eseg ? eseg->tick() : lastMeasure()->endTick();
+      bool clip          = xml.clipboardmode();
+
+      // in clipboard mode, ls might be in an mmrest
+      // since we are traversing regular measures,
+      // force them out of mmRest
+      if (clip) {
+            Measure* lm = eseg ? eseg->measure() : 0;
+            Measure* fm = sseg ? sseg->measure() : 0;
+            if (lm && lm->isMMRest()) {
+                  lm = lm->mmRestLast();
+                  if (lm)
+                        eseg = lm->nextMeasure() ? lm->nextMeasure()->first() : nullptr;
+                  else
+                        qDebug("writeSegments: no measure for end segment in mmrest");
+                  }
+            if (fm && fm->isMMRest()) {
+                  fm = fm->mmRestFirst();
+                  if (fm)
+                        sseg = fm->first();
+                  }
+            }
+
+      QList<Spanner*> spanners;
+#if 0
+      auto endIt   = spanner().upper_bound(endTick);
+      for (auto i = spanner().begin(); i != endIt; ++i) {
+            Spanner* s = i->second;
+#else
+      auto sl = spannerMap().findOverlapping(sseg->tick().ticks(), endTick.ticks());
+      for (auto i : sl) {
+            Spanner* s = i.value;
+#endif
+            if (s->generated() || !xml.canWrite(s))
+                  continue;
+            // don't write voltas to clipboard
+            if (clip && s->isVolta())
+                  continue;
+            spanners.push_back(s);
+            }
+
+      int lastTrackWritten = strack - 1; // for counting necessary <voice> tags
       for (int track = strack; track < etrack; ++track) {
-            for (Segment* segment = fs; segment && segment != ls; segment = segment->next1()) {
+            if (!xml.canWriteVoice(track))
+                  continue;
+
+            bool voiceTagWritten = false;
+
+            bool timeSigWritten = false; // for forceTimeSig
+            bool crWritten = false;      // for forceTimeSig
+            bool keySigWritten = false;  // for forceTimeSig
+
+            for (Segment* segment = sseg; segment && segment != eseg; segment = segment->next1()) {
+                  if (!segment->enabled())
+                        continue;
                   if (track == 0)
                         segment->setWritten(false);
                   Element* e = segment->element(track);
+
                   //
                   // special case: - barline span > 1
                   //               - part (excerpt) staff starts after
                   //                 barline element
-                  bool needTick = segment->tick() != xml.curTick;
-                  if ((segment->subtype() == Segment::SegEndBarLine)
-                     && (e == 0)
-                     && writeSystemElements
-                     && ((track % VOICES) == 0)) {
+                  bool needMove = (segment->tick() != xml.curTick() || (track > lastTrackWritten));
+                  if ((segment->isEndBarLineType()) && !e && writeSystemElements && ((track % VOICES) == 0)) {
                         // search barline:
                         for (int idx = track - VOICES; idx >= 0; idx -= VOICES) {
                               if (segment->element(idx)) {
-                                    int oDiff = xml.trackDiff;
-                                    xml.trackDiff = idx;          // staffIdx should be zero
+                                    int oDiff = xml.trackDiff();
+                                    xml.setTrackDiff(idx);          // staffIdx should be zero
                                     segment->element(idx)->write(xml);
-                                    xml.trackDiff = oDiff;
+                                    xml.setTrackDiff(oDiff);
                                     break;
                                     }
                               }
                         }
-                  foreach (Element* e, segment->annotations()) {
-                        if (e->track() != track || e->generated())
+                  for (Element* e1 : segment->annotations()) {
+                        if (e1->track() != track || e1->generated() || (e1->systemFlag() && !writeSystemElements))
                               continue;
-                        if (needTick) {
-                              xml.tag("tick", segment->tick() - xml.tickDiff);
-                              xml.curTick = segment->tick();
-                              needTick = false;
+                        if (needMove) {
+                              voiceTagWritten |= writeVoiceMove(xml, segment, startTick, track, &lastTrackWritten);
+                              needMove = false;
                               }
-                        e->write(xml);
+                        e1->write(xml);
                         }
-                  for (Spanner* e = segment->spannerFor(); e; e = e->next()) {
-                        if (e->track() == track && !e->generated()) {
-                              if (needTick) {
-                                    xml.tag("tick", segment->tick() - xml.tickDiff);
-                                    xml.curTick = segment->tick();
-                                    needTick = false;
-                                    }
-                              e->setId(++xml.spannerId);
-                              e->write(xml);
-                              }
-                        }
-                  for (Spanner* e = segment->spannerBack(); e; e = e->next()) {
-                        if (e->track() == track && !e->generated()) {
-                              if (needTick) {
-                                    xml.tag("tick", segment->tick() - xml.tickDiff);
-                                    xml.curTick = segment->tick();
-                                    needTick = false;
-                                    }
-                              Q_ASSERT(e->id() != -1);
-                              xml.tagE(QString("endSpanner id=\"%1\"").arg(e->id()));
-                              }
-                        }
-                  if (!e)
-                        continue;
+                  Measure* m = segment->measure();
+                  // don't write spanners for multi measure rests
 
-                  if (e->generated()) {
-                        if ((xml.curTick - xml.tickDiff) == 0) {
-                              if (e->type() == Element::CLEF) {
-                                    if (needTick) {
-                                          xml.tag("tick", segment->tick() - xml.tickDiff);
-                                          xml.curTick = segment->tick();
-                                          needTick = false;
+                  if ((!(m && m->isMMRest())) && segment->isChordRestType()) {
+                        for (Spanner* s : spanners) {
+                              if (s->track() == track) {
+                                    bool end = false;
+                                    if (s->anchor() == Spanner::Anchor::CHORD || s->anchor() == Spanner::Anchor::NOTE)
+                                          end = s->tick2() < endTick;
+                                    else
+                                          end = s->tick2() <= endTick;
+                                    if (s->tick() == segment->tick() && (!clip || end) && !s->isSlur()) {
+                                          if (needMove) {
+                                                voiceTagWritten |= writeVoiceMove(xml, segment, startTick, track, &lastTrackWritten);
+                                                needMove = false;
+                                                }
+                                          s->writeSpannerStart(xml, segment, track);
                                           }
-                                    e->write(xml);
+                                    }
+                              if ((s->tick2() == segment->tick())
+                                 && !s->isSlur()
+                                 && (s->track2() == track || (s->track2() == -1 && s->track() == track))
+                                 && (!clip || s->tick() >= sseg->tick())
+                                 ) {
+                                    if (needMove) {
+                                          voiceTagWritten |= writeVoiceMove(xml, segment, startTick, track, &lastTrackWritten);
+                                          needMove = false;
+                                          }
+                                    s->writeSpannerEnd(xml, segment, track);
                                     }
                               }
-                        continue;
                         }
-                  if (needTick) {
-                        xml.tag("tick", segment->tick() - xml.tickDiff);
-                        xml.curTick = segment->tick();
-                        needTick = false;
+
+                  if (!e || !xml.canWrite(e))
+                        continue;
+                  if (e->generated())
+                        continue;
+                  if (forceTimeSig && track2voice(track) == 0 && segment->segmentType() == SegmentType::ChordRest && !timeSigWritten && !crWritten) {
+                        // Ensure that <voice> tag is open
+                        voiceTagWritten |= writeVoiceMove(xml, segment, startTick, track, &lastTrackWritten);
+                        // we will miss a key sig!
+                        if (!keySigWritten) {
+                              Key k = score()->staff(track2staff(track))->key(segment->tick());
+                              KeySig* ks = new KeySig(this);
+                              ks->setKey(k);
+                              ks->write(xml);
+                              delete ks;
+                              keySigWritten = true;
+                              }
+                        // we will miss a time sig!
+                        Fraction tsf = sigmap()->timesig(segment->tick()).timesig();
+                        TimeSig* ts = new TimeSig(this);
+                        ts->setSig(tsf);
+                        ts->write(xml);
+                        delete ts;
+                        timeSigWritten = true;
+                        }
+                  if (needMove) {
+                        voiceTagWritten |= writeVoiceMove(xml, segment, startTick, track, &lastTrackWritten);
+                        needMove = false;
                         }
                   if (e->isChordRest()) {
-                        ChordRest* cr = static_cast<ChordRest*>(e);
-                        Beam* beam = cr->beam();
-#ifndef NDEBUG
-                        if (beam && beam->elements().front() == cr && (testMode() || !beam->generated())) {
-                              beam->setId(xml.beamId++);
-                              beam->write(xml);
-                              }
-#else
-                        if (beam && !beam->generated() && beam->elements().front() == cr) {
-                              beam->setId(xml.beamId++);
-                              beam->write(xml);
-                              }
-#endif
-                        cr->writeTuplet(xml);
-                        for (Spanner* slur = cr->spannerFor(); slur; slur = slur->next()) {
-                              if (!xml.spanner().contains(slur)) {
-                                    Q_ASSERT(slur->type() == Element::SLUR);
-                                    slur->setId(xml.spannerId++);
-                                    slur->write(xml);
-                                    xml.addSpanner(slur);
-                                    }
-                              }
-                        for (Spanner* slur = cr->spannerBack(); slur; slur = slur->next()) {
-                              if (!xml.spanner().contains(slur)) {
-                                    Q_ASSERT(slur->type() == Element::SLUR);
-                                    slur->setId(xml.spannerId++);
-                                    slur->write(xml);
-                                    xml.addSpanner(slur);
-                                    }
-                              }
+                        ChordRest* cr = toChordRest(e);
+                        cr->writeTupletStart(xml);
                         }
-                  if ((segment->subtype() == Segment::SegEndBarLine) && m && (m->multiMeasure() > 0)) {
-                        xml.stag("BarLine");
-                        xml.tag("subtype", m->endBarLineType());
-                        xml.tag("visible", m->endBarLineVisible());
-                        xml.etag();
+//                  if (segment->isEndBarLine() && (m->mmRestCount() < 0 || m->mmRest())) {
+//                        BarLine* bl = toBarLine(e);
+//TODO                        bl->setBarLineType(m->endBarLineType());
+//                        bl->setVisible(m->endBarLineVisible());
+//                        }
+                  e->write(xml);
+
+                  if (e->isChordRest()) {
+                        ChordRest* cr = toChordRest(e);
+                        cr->writeTupletEnd(xml);
                         }
-                  else
-                        e->write(xml);
+
                   segment->write(xml);    // write only once
+                  if (forceTimeSig) {
+                        if (segment->segmentType() == SegmentType::KeySig)
+                              keySigWritten = true;
+                        if (segment->segmentType() == SegmentType::TimeSig)
+                              timeSigWritten = true;
+                        if (segment->segmentType() == SegmentType::ChordRest)
+                              crWritten = true;
+                        }
                   }
+
+            //write spanner ending after the last segment, on the last tick
+            if (clip || eseg == 0) {
+                  for (Spanner* s : spanners) {
+                        if ((s->tick2() == endTick)
+                          && !s->isSlur()
+                          && (s->track2() == track || (s->track2() == -1 && s->track() == track))
+                          && (!clip || s->tick() >= sseg->tick())
+                          ) {
+                              s->writeSpannerEnd(xml, lastMeasure(), track, endTick);
+                              }
+                        }
+                  }
+
+            if (voiceTagWritten)
+                  xml.etag(); // </voice>
             }
       }
 
@@ -1360,54 +1324,8 @@ void Score::writeSegments(Xml& xml, const Measure* m, int strack, int etrack,
 
 Tuplet* Score::searchTuplet(XmlReader& /*e*/, int /*id*/)
       {
-#if 0 // TODOx
-      QDomElement e = de;
-      QDomDocument doc = e.ownerDocument();
-
-      QString tag;
-      for (e = doc.documentElement(); !e.isNull(); e = e.nextSiblingElement()) {
-            tag = e.tagName();
-            if (tag == "museScore")
-                  break;
-            }
-      if (tag != "museScore") {
-            qDebug("Score::searchTuplet():  no museScore found");
-            return 0;
-            }
-
-      for (e = e.firstChildElement(); !e.isNull(); e = e.nextSiblingElement()) {
-            tag = e.tagName();
-            if (tag == "Score" || tag == "Part")
-                  break;
-            }
-      if (tag != "Score" && tag != "Part") {
-            qDebug("Score::searchTuplet():  no Score/Part found");
-            return 0;
-            }
-      if (tag == "Score")
-            e = e.firstChildElement();
-      else
-            e = e.nextSiblingElement();
-      for (; !e.isNull(); e = e.nextSiblingElement()) {
-            if (e.tagName() == "Staff") {
-                  for (QDomElement ee = e.firstChildElement(); !ee.isNull(); ee = ee.nextSiblingElement()) {
-                        if (ee.tagName() == "Measure") {
-                              for (QDomElement eee = ee.firstChildElement(); !eee.isNull(); eee = eee.nextSiblingElement()) {
-                                    if (eee.tagName() == "Tuplet") {
-                                          Tuplet* tuplet = new Tuplet(this);
-                                          QList<Spanner*> spannerList;
-                                          QList<Tuplet*> tuplets;
-                                          tuplet->read(eee);
-                                          if (tuplet->id() == id)
-                                                return tuplet;
-                                          delete tuplet;
-                                          }
-                                    }
-                              }
-                        }
-                  }
-            }
-#endif
       return 0;
       }
+
+}
 

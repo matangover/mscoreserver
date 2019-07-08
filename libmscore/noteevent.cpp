@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id:$
 //
 //  Copyright (C) 2010-2011 Werner Schweer
 //
@@ -13,6 +12,8 @@
 
 #include "noteevent.h"
 #include "xml.h"
+
+namespace Ms {
 
 //---------------------------------------------------------
 //   read
@@ -37,7 +38,7 @@ void NoteEvent::read(XmlReader& e)
 //   write
 //---------------------------------------------------------
 
-void NoteEvent::write(Xml& xml) const
+void NoteEvent::write(XmlWriter& xml) const
       {
       xml.stag("Event");
       xml.tag("pitch", _pitch);
@@ -63,4 +64,6 @@ bool NoteEvent::operator==(const NoteEvent& e) const
       {
       return (e._pitch == _pitch) && (e._ontime == _ontime) && (e._len == _len);
       }
+
+}
 

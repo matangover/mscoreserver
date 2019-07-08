@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: chordline.h 5491 2012-03-22 20:19:22Z lvinken $
 //
 //  Copyright (C) 2002-2012 Werner Schweer
 //
@@ -16,13 +15,14 @@
 
 #include "element.h"
 
+namespace Ms {
+
 class Chord;
-class QPainter;
 
 // subtypes:
-enum ChordLineType {
-      CHORDLINE_NOTYPE, CHORDLINE_FALL, CHORDLINE_DOIT,
-      CHORDLINE_PLOP, CHORDLINE_SCOOP
+enum class ChordLineType : char {
+      NOTYPE, FALL, DOIT,
+      PLOP, SCOOP
       };
 
 //---------------------------------------------------------
@@ -31,31 +31,49 @@ enum ChordLineType {
 ///    implements fall, doit, plop, bend
 //---------------------------------------------------------
 
-class ChordLine : public Element {
-      Q_OBJECT
-
-      ChordLineType _subtype;
+class ChordLine final : public Element {
+      ChordLineType _chordLineType;
+      bool _straight;
       QPainterPath path;
       bool modified;
+      qreal _lengthX;
+      qreal _lengthY;
+      const int _initialLength = 2;
 
    public:
       ChordLine(Score*);
       ChordLine(const ChordLine&);
 
-      virtual ChordLine* clone() const { return new ChordLine(*this); }
-      virtual ElementType type() const { return CHORDLINE; }
-      virtual void setSubtype(ChordLineType);
-      ChordLineType subtype() const    { return _subtype; }
-      Chord* chord() const             { return (Chord*)(parent()); }
+      virtual ChordLine* clone() const override { return new ChordLine(*this); }
+      virtual ElementType type() const override { return ElementType::CHORDLINE; }
 
-      virtual void read(XmlReader&);
-      virtual void write(Xml& xml) const;
-      virtual void layout();
-      virtual void draw(QPainter*) const;
+      virtual void setChordLineType(ChordLineType);
+      ChordLineType chordLineType() const       { return _chordLineType; }
+      Chord* chord() const                      { return (Chord*)(parent()); }
+      virtual bool isStraight() const           { return _straight; }
+      virtual void setStraight(bool straight)   { _straight =  straight; }
+      virtual void setLengthX(qreal length)     { _lengthX = length; }
+      virtual void setLengthY(qreal length)     { _lengthY = length; }
 
-      virtual void editDrag(const EditData&);
-      virtual void updateGrips(int*, QRectF*) const;
+      virtual void read(XmlReader&) override;
+      virtual void write(XmlWriter& xml) const override;
+      virtual void layout() override;
+      virtual void draw(QPainter*) const override;
+
+      virtual void startEdit(EditData&) override;
+      virtual void editDrag(EditData&) override;
+      virtual void updateGrips(EditData&) const override;
+
+      virtual QString accessibleInfo() const override;
+
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid) const override;
+      virtual Pid propertyId(const QStringRef& xmlName) const override;
       };
 
+extern const char* scorelineNames[];
+
+}     // namespace Ms
 #endif
 

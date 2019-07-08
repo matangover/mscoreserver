@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: breath.h 5504 2012-03-29 11:01:37Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -16,37 +15,63 @@
 
 #include "element.h"
 
-class QPainter;
+namespace Ms {
+
+enum class SymId;
+
+//---------------------------------------------------------
+//   BreathType
+//---------------------------------------------------------
+
+struct BreathType {
+      SymId id;
+      bool isCaesura;
+      qreal pause;
+      };
 
 //---------------------------------------------------------
 //   @@ Breath
-///    subtype() is index in symList
+//!    breathType() is index in symList
 //---------------------------------------------------------
 
-class Breath : public Element {
-      Q_OBJECT
-
-      int _subtype;
-      static const int breathSymbols = 4;
-      static int symList[breathSymbols];
+class Breath final : public Element {
+      qreal _pause;
+      SymId _symId;
 
    public:
       Breath(Score* s);
-      virtual Breath* clone() const { return new Breath(*this); }
+      virtual ElementType type() const override { return ElementType::BREATH; }
+      virtual Breath* clone() const override    { return new Breath(*this); }
 
-      virtual ElementType type() const { return BREATH; }
-      int subtype() const { return _subtype; }
-      void setSubtype(int v) { _subtype = v; }
+      virtual qreal mag() const override;
+
+      void setSymId(SymId id)          { _symId = id; }
+      SymId symId() const              { return _symId; }
+      qreal pause() const              { return _pause; }
+      void setPause(qreal v)           { _pause = v; }
 
       Segment* segment() const         { return (Segment*)parent(); }
-      virtual Space space() const;
 
-      virtual void draw(QPainter*) const;
-      virtual void layout();
-      virtual void write(Xml&) const;
-      virtual void read(XmlReader&);
-      virtual QPointF pagePos() const;      ///< position in page coordinates
+      virtual void draw(QPainter*) const override;
+      virtual void layout() override;
+      virtual void write(XmlWriter&) const override;
+      virtual void read(XmlReader&) override;
+      virtual QPointF pagePos() const override;      ///< position in page coordinates
+
+      virtual QVariant getProperty(Pid propertyId) const override;
+      virtual bool setProperty(Pid propertyId, const QVariant&) override;
+      virtual QVariant propertyDefault(Pid) const override;
+
+      virtual Element* nextSegmentElement() override;
+      virtual Element* prevSegmentElement() override;
+      virtual QString accessibleInfo() const override;
+
+      bool isCaesura() const;
+
+      static const std::vector<BreathType> breathList;
       };
 
+
+}     // namespace Ms
 #endif
 

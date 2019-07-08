@@ -1,7 +1,6 @@
 //=============================================================================
 //  MuseScore
 //  Music Composition & Notation
-//  $Id: select.h 5582 2012-04-27 19:16:19Z wschweer $
 //
 //  Copyright (C) 2002-2011 Werner Schweer
 //
@@ -14,6 +13,12 @@
 #ifndef __SELECT_H__
 #define __SELECT_H__
 
+#include "pitchspelling.h"
+#include "mscore.h"
+#include "durationtype.h"
+
+namespace Ms {
+
 class Score;
 class Page;
 class System;
@@ -22,6 +27,7 @@ class Element;
 class Segment;
 class Note;
 class Measure;
+class Chord;
 
 //---------------------------------------------------------
 //   ElementPattern
@@ -31,62 +37,153 @@ struct ElementPattern {
       QList<Element*> el;
       int type;
       int subtype;
-      int staff;
+      int staffStart;
+      int staffEnd; // exclusive
       int voice;
       const System* system;
       bool subtypeValid;
+      Fraction durationTicks;
+      };
+
+//---------------------------------------------------------
+//   NotePattern
+//---------------------------------------------------------
+
+struct NotePattern {
+      QList<Note*> el;
+      int pitch = -1;
+      int string = STRING_NONE;
+      int tpc = Tpc::TPC_INVALID;;
+      NoteHead::Group notehead = NoteHead::Group::HEAD_INVALID;
+      TDuration duration = TDuration();
+      NoteType type = NoteType::INVALID;
+      int staffStart;
+      int staffEnd; // exclusive
+      int voice;
+      const System* system;
       };
 
 //---------------------------------------------------------
 //   SelState
 //---------------------------------------------------------
 
-enum SelState {
-      SEL_NONE,   // nothing is selected
-      SEL_LIST,   // disjoint selection
-      SEL_RANGE,  // adjacent selection, a range in one or more staves
+enum class SelState : char {
+      NONE,   // nothing is selected
+      LIST,   // disjoint selection
+      RANGE,  // adjacent selection, a range in one or more staves
                   // is selected
+      };
+
+//---------------------------------------------------------
+//   SelectionFilterType
+//---------------------------------------------------------
+
+enum class SelectionFilterType {
+      NONE                    = 0,
+      FIRST_VOICE             = 1 << 0,
+      SECOND_VOICE            = 1 << 1,
+      THIRD_VOICE             = 1 << 2,
+      FOURTH_VOICE            = 1 << 3,
+      DYNAMIC                 = 1 << 4,
+      FINGERING               = 1 << 5,
+      LYRICS                  = 1 << 6,
+      CHORD_SYMBOL            = 1 << 7,
+      OTHER_TEXT              = 1 << 8,
+      ARTICULATION            = 1 << 9,
+      SLUR                    = 1 << 10,
+      FIGURED_BASS            = 1 << 11,
+      OTTAVA                  = 1 << 12,
+      PEDAL_LINE              = 1 << 13,
+      OTHER_LINE              = 1 << 14,
+      ARPEGGIO                = 1 << 15,
+      GLISSANDO               = 1 << 16,
+      FRET_DIAGRAM            = 1 << 17,
+      BREATH                  = 1 << 18,
+      TREMOLO                 = 1 << 19,
+      GRACE_NOTE              = 1 << 20,
+      ALL                     = -1
+      };
+
+
+//---------------------------------------------------------
+//   SelectionFilter
+//---------------------------------------------------------
+
+class SelectionFilter {
+      Score* _score;
+      int _filtered;
+
+public:
+      SelectionFilter()                      { _score = 0; _filtered = (int)SelectionFilterType::ALL;}
+      SelectionFilter(SelectionFilterType f) : _score(nullptr), _filtered(int(f)) {}
+      SelectionFilter(Score* score)          { _score = score; _filtered = (int)SelectionFilterType::ALL;}
+      int& filtered()                        { return _filtered; }
+      void setFiltered(SelectionFilterType type, bool set);
+      bool isFiltered(SelectionFilterType type) const        { return _filtered & (int)type; }
+      bool canSelect(const Element*) const;
+      bool canSelectVoice(int track) const;
       };
 
 //-------------------------------------------------------------------
 //   Selection
-//    For SEL_LIST state only visible elements can be selected
+//    For SelState::LIST state only visible elements can be selected
 //    (no Chord element etc.).
 //-------------------------------------------------------------------
 
 class Selection {
       Score* _score;
       SelState _state;
-      QList<Element*> _el;          // valid in mode SEL_LIST
+      QList<Element*> _el;          // valid in mode SelState::LIST
 
-      int _staffStart;              // valid if selState is SEL_RANGE
+      int _staffStart;              // valid if selState is SelState::RANGE
       int _staffEnd;
       Segment* _startSegment;
       Segment* _endSegment;         // next segment after selection
+
+      Fraction _plannedTick1 { -1, 1 }; // Will be actually selected on updateSelectedElements() call.
+      Fraction _plannedTick2 { -1, 1 }; // Used by setRangeTicks() to restore proper selection after
+                              // command end in case some changes are expected to segments'
+                              // structure (e.g. MMRests reconstruction).
 
       Segment* _activeSegment;
       int _activeTrack;
 
       QByteArray staffMimeData() const;
+      QByteArray symbolListMimeData() const;
+      SelectionFilter selectionFilter() const;
+      bool canSelect(Element* e) const { return selectionFilter().canSelect(e); }
+      bool canSelectVoice(int track) const { return selectionFilter().canSelectVoice(track); }
+      void appendFiltered(Element* e);
+      void appendChord(Chord* chord);
 
    public:
-      Selection()                      { _score = 0; _state = SEL_NONE; }
+      Selection()                      { _score = 0; _state = SelState::NONE; }
       Selection(Score*);
       Score* score() const             { return _score; }
       SelState state() const           { return _state; }
+      bool isNone() const              { return _state == SelState::NONE; }
+      bool isRange() const             { return _state == SelState::RANGE; }
+      bool isList() const              { return _state == SelState::LIST; }
       void setState(SelState s);
 
-      void searchSelectedElements();
       const QList<Element*>& elements() const { return _el; }
-      bool isSingle() const                   { return (_state == SEL_LIST) && (_el.size() == 1); }
-      QList<Note*> noteList(int track = -1) const;
+      std::vector<Note*> noteList(int track = -1) const;
+
+      const QList<Element*> uniqueElements() const;
+      QList<Note*> uniqueNotes(int track = -1) const;
+
+      bool isSingle() const                   { return (_state == SelState::LIST) && (_el.size() == 1); }
+
       void add(Element*);
       void deselectAll();
       void remove(Element*);
       void clear();
       Element* element() const;
+      ChordRest* cr() const;
+      Segment* firstChordRestSegment() const;
       ChordRest* firstChordRest(int track = -1) const;
       ChordRest* lastChordRest(int track = -1) const;
+      Measure* findMeasure() const;
       void update();
       void updateState();
       void dump();
@@ -97,14 +194,15 @@ class Selection {
       Segment* endSegment() const       { return _endSegment;   }
       void setStartSegment(Segment* s)  { _startSegment = s; }
       void setEndSegment(Segment* s)    { _endSegment = s; }
-      void setRange(Segment* a, Segment* b, int c, int d);
+      void setRange(Segment* startSegment, Segment* endSegment, int staffStart, int staffEnd);
+      void setRangeTicks(const Fraction& tick1, const Fraction& tick2, int staffStart, int staffEnd);
       Segment* activeSegment() const    { return _activeSegment; }
       void setActiveSegment(Segment* s) { _activeSegment = s; }
       ChordRest* activeCR() const;
       bool isStartActive() const;
       bool isEndActive() const;
-      int tickStart() const;
-      int tickEnd() const;
+      Fraction tickStart() const;
+      Fraction tickEnd() const;
       int staffStart() const            { return _staffStart;  }
       int staffEnd() const              { return _staffEnd;    }
       int activeTrack() const           { return _activeTrack; }
@@ -112,10 +210,13 @@ class Selection {
       void setStaffEnd(int v)           { _staffEnd = v;    }
       void setActiveTrack(int v)        { _activeTrack = v; }
       bool canCopy() const;
-      void reconstructElementList();
       void updateSelectedElements();
       bool measureRange(Measure** m1, Measure** m2) const;
+      void extendRangeSelection(ChordRest* cr);
+      void extendRangeSelection(Segment* seg, Segment* segAfter, int staffIdx, const Fraction& tick, const Fraction& etick);
       };
 
+
+}     // namespace Ms
 #endif
 

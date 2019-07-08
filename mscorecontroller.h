@@ -22,15 +22,15 @@
 //   MScoreController
 //---------------------------------------------------------
 
-class MScoreController : public HttpRequestHandler
+class MScoreController
       {
-      Q_OBJECT
+      // Q_OBJECT
       Q_DISABLE_COPY(MScoreController);
 
    public:
-      MScoreController(QObject* parent);
+      MScoreController();
       ~MScoreController();
-      void service(HttpRequest& request, HttpResponse& response) override;
+      void service();
       };
 
 #endif

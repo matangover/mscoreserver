@@ -7,6 +7,8 @@
         <file>fonts/gonville-20.otf</file>
         <file>fonts/mscore-20.otf</file>
         <file>fonts/mscore1-20.ttf</file>
+        <file>fonts/mscore/mscore.ttf</file>
+        <file>fonts/mscore/metadata.json</file>
         <file>fonts/MuseJazz.ttf</file>
         <file>fonts/mscoreTab.ttf</file>
         <file>fonts/FreeSerifMscore.ttf</file>
